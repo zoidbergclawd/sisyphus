@@ -36,6 +36,30 @@ class PRDItem:
 
 
 @dataclass
+class PRDHooks:
+    """Validation hooks for a PRD."""
+    pre_commit: list[str] = field(default_factory=list)
+    post_item: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> "PRDHooks":
+        """Create hooks from dictionary."""
+        if not data:
+            return cls()
+        return cls(
+            pre_commit=data.get("pre_commit", []),
+            post_item=data.get("post_item", []),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "pre_commit": self.pre_commit,
+            "post_item": self.post_item,
+        }
+
+
+@dataclass
 class PRD:
     """Product Requirements Document."""
     project: str
@@ -43,6 +67,7 @@ class PRD:
     tech_stack: dict[str, Any]
     context: dict[str, Any]
     items: list[PRDItem]
+    hooks: PRDHooks = field(default_factory=PRDHooks)
     _path: Path | None = None
 
     @classmethod
@@ -61,6 +86,7 @@ class PRD:
             tech_stack=data.get("tech_stack", {}),
             context=data.get("context", {}),
             items=[PRDItem.from_dict(item) for item in data.get("items", [])],
+            hooks=PRDHooks.from_dict(data.get("hooks")),
         )
         prd._path = path
         return prd
@@ -90,6 +116,10 @@ class PRD:
                 for item in self.items
             ],
         }
+        
+        # Only include hooks if they have content
+        if self.hooks.pre_commit or self.hooks.post_item:
+            data["hooks"] = self.hooks.to_dict()
         
         with open(self._path, "w") as f:
             json.dump(data, f, indent=2)

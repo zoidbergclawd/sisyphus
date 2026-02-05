@@ -307,9 +307,22 @@ def _process_items(state: RalphState, prd: PRD, git: GitOps, agent: "Agent") -> 
         
         console.print("[green]✓ Tests passed[/green]")
         
+        # Run pre-commit hooks if defined
+        if prd.hooks.pre_commit:
+            from ralph.hooks import run_pre_commit_hooks
+            hooks_passed, _ = run_pre_commit_hooks(prd.hooks, console)
+            if not hooks_passed:
+                console.print("\n[yellow]Fix the hook failures and run 'ralph resume' to continue.[/yellow]")
+                return
+        
         # Create checkpoint
         sha = _create_checkpoint(state, prd, item.id, git, files_changed, tests_passed)
         console.print(f"[green]✓ Checkpoint: {sha[:8]}[/green]")
+        
+        # Run post-item hooks if defined
+        if prd.hooks.post_item:
+            from ralph.hooks import run_post_item_hooks
+            run_post_item_hooks(prd.hooks, console)
 
 
 @app.command()

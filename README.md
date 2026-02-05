@@ -1,219 +1,285 @@
-# Sisyphus
+# Ralph CLI
 
-> *"One must imagine Sisyphus happy."* — Albert Camus
+> Autonomous AI coding agent orchestrator with branch isolation, checkpoints, and PR workflow.
 
-An autonomous coding loop that processes PRD items one at a time, using AI coding agents. Named for the mythological figure who found meaning in the eternal push.
+Ralph is a CLI tool that orchestrates AI coding agents (Claude Code, Codex, Gemini) to work through a Product Requirements Document (PRD) systematically. Each run creates an isolated git branch, auto-commits after each item, and can generate pull requests automatically.
 
-## Philosophy
+Named for "Ralphing" – our term for autonomous coding loops.
 
-The universe is indifferent. The code will eventually be deprecated. The servers will shut down.
+## Installation
 
-And yet—we build anyway.
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/sisyphus.git
+cd sisyphus
 
-Sisyphus is a tool for those who find joy in the push itself. You define what needs to be built (the PRD), and Sisyphus pushes the boulder up the hill one item at a time: read task, write tests, implement, verify, commit, repeat.
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
 
-The boulder reaches the top. Then we start another project.
-
-## Features
-
-- **Multi-agent support**: Works with Claude Code, OpenAI Codex, and Google Gemini CLI
-- **PRD-driven**: Structured JSON defines what to build, with verification criteria
-- **TDD by default**: Tests first, always
-- **Auto-commit**: Structured git commits after each completed item
-- **Auto-push**: Optional push to remote after each commit
-- **Progress tracking**: Living log of what was done and why
+# Install ralph
+pip install -e .
+```
 
 ## Quick Start
 
-```bash
-# Clone sisyphus into your project (or copy the files)
-git clone https://github.com/zoidbergclawd/sisyphus.git
-cd your-project
-cp ../sisyphus/sisyphus.sh .
-cp ../sisyphus/prd-template.json prd.json
-cp ../sisyphus/AGENTS.md .
-
-# Edit prd.json with your items
-vim prd.json
-
-# Initialize progress tracking
-echo "# Progress Log" > progress.txt
-
-# Run with Claude (default)
-./sisyphus.sh 10
-
-# Run with Codex
-./sisyphus.sh -a codex 10
-
-# Run with Gemini
-./sisyphus.sh -a gemini 10
-
-# Push after each commit
-./sisyphus.sh -a claude --push 10
-```
-
-## Requirements
-
-At least one of these AI coding agents installed:
-
-| Agent | Install | Docs |
-|-------|---------|------|
-| **Claude Code** | `brew install claude` or npm | [docs](https://docs.anthropic.com/claude-code) |
-| **Codex CLI** | `npm install -g @openai/codex` | [docs](https://developers.openai.com/codex/cli/) |
-| **Gemini CLI** | `npm install -g @google/gemini-cli` | [docs](https://geminicli.com/) |
-
-## PRD Structure
-
-The PRD (`prd.json`) defines your project:
+1. **Create a PRD file** (JSON format):
 
 ```json
 {
-  "project": "My Awesome Project",
-  "goal": "What we're building and why",
-  "tech_stack": {
-    "language": "Python 3.11+",
-    "framework": "FastAPI",
-    "testing": "pytest"
-  },
+  "project": "My Feature",
+  "goal": "Implement user authentication",
   "items": [
     {
       "id": 1,
-      "title": "Project scaffolding",
-      "description": "Set up project structure with dependencies",
+      "category": "setup",
+      "title": "Add auth dependencies",
+      "description": "Install and configure auth libraries",
       "priority": 1,
-      "passes": false,
-      "verification": "pip install -e . && myproject --help shows usage"
-    },
-    {
-      "id": 2,
-      "title": "Core feature X",
-      "description": "Implement the main feature",
-      "priority": 1,
-      "passes": false,
-      "verification": "pytest tests/test_feature_x.py passes"
+      "verification": "pip list shows auth packages",
+      "steps": ["Add to requirements.txt", "Run pip install"]
     }
   ]
 }
 ```
 
+2. **Start Ralph**:
+
+```bash
+ralph start my-feature-prd.json
+```
+
+3. **Monitor progress**:
+
+```bash
+ralph status
+```
+
+4. **Create PR when done**:
+
+```bash
+ralph pr
+```
+
+## Commands
+
+### `ralph start <prd.json>`
+
+Start a new Ralph run from a PRD file.
+
+```bash
+ralph start feature.json                    # Use default agent (Claude)
+ralph start feature.json -a codex           # Use Codex CLI
+ralph start feature.json --push             # Auto-push after each checkpoint
+ralph start feature.json --force            # Skip dirty directory check
+```
+
+### `ralph status`
+
+Show current Ralph run status.
+
+```bash
+ralph status
+```
+
+Output includes:
+- Current branch
+- Progress (N/M items)
+- Time elapsed
+- Next item to work on
+
+### `ralph resume`
+
+Resume an interrupted run from where it left off.
+
+```bash
+ralph resume
+```
+
+### `ralph rollback [N]`
+
+Undo the last N completed items.
+
+```bash
+ralph rollback        # Roll back 1 item
+ralph rollback 3      # Roll back 3 items
+ralph rollback --hard # Use git reset instead of revert
+```
+
+### `ralph diff`
+
+Show summary of all changes since branch creation.
+
+```bash
+ralph diff
+```
+
+### `ralph dry-run [prd.json]`
+
+Preview what Ralph would do without executing.
+
+```bash
+ralph dry-run feature.json
+```
+
+### `ralph pr`
+
+Create a pull request with auto-generated description.
+
+```bash
+ralph pr           # Requires all items complete
+ralph pr --force   # Allow partial completion
+```
+
+## PRD Format
+
+```json
+{
+  "project": "Project Name",
+  "goal": "What this PRD accomplishes",
+  "tech_stack": {
+    "language": "Python 3.11+",
+    "framework": "FastAPI"
+  },
+  "context": {
+    "target_user": "Developers",
+    "constraints": "Must maintain backwards compatibility"
+  },
+  "hooks": {
+    "pre_commit": ["ruff check", "mypy"],
+    "post_item": ["echo 'Item complete!'"]
+  },
+  "items": [
+    {
+      "id": 1,
+      "category": "setup",
+      "title": "Item title",
+      "description": "What needs to be done",
+      "priority": 1,
+      "passes": false,
+      "verification": "How to verify completion",
+      "steps": ["Step 1", "Step 2"],
+      "notes": "Additional notes"
+    }
+  ]
+}
+```
+
+### Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `project` | Yes | Project name (used for branch naming) |
+| `goal` | Yes | Overall goal of the PRD |
+| `tech_stack` | No | Technology stack info |
+| `context` | No | Additional context for the agent |
+| `hooks` | No | Validation hooks (see below) |
+| `items` | Yes | List of items to implement |
+
 ### Item Fields
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `id` | Yes | Unique identifier, used in commit messages |
-| `title` | Yes | Short description for commits |
-| `description` | Yes | Full description of what to implement |
-| `priority` | Yes | Lower = higher priority (1 is highest) |
-| `passes` | Yes | Set to `true` by agent when complete |
-| `verification` | Yes | How to verify the item is done |
-| `steps` | No | Detailed implementation steps |
-| `notes` | No | Additional context or constraints |
+| `id` | Yes | Unique item ID |
+| `category` | Yes | Category (e.g., setup, core, polish) |
+| `title` | Yes | Short title |
+| `description` | Yes | Full description |
+| `priority` | Yes | Priority (1 = highest) |
+| `passes` | No | Whether item is complete |
+| `verification` | No | How to verify completion |
+| `steps` | No | Step-by-step instructions |
+| `notes` | No | Additional notes |
 
-## Commit Format
+## Hooks
 
-Sisyphus uses structured commits for clean history:
+Ralph supports validation hooks that run after each item:
 
-```
-[ITEM-3] User authentication (Route C)
-
-Implemented OAuth2 login flow with JWT tokens.
-
-- src/auth/oauth.py: Added OAuth2 provider integration
-- src/auth/jwt.py: JWT token generation and validation
-- tests/test_auth.py: 12 new tests for auth flow
-
-Tests: 12 passing
+```json
+{
+  "hooks": {
+    "pre_commit": ["ruff check .", "mypy ."],
+    "post_item": ["./scripts/validate.sh"]
+  }
+}
 ```
 
-The route indicates complexity:
-- **Route A**: Simple (direct implementation)
-- **Route B**: Medium (exploration needed)
-- **Route C**: Complex (planning + exploration)
+- **pre_commit**: Run before creating the checkpoint commit. If any fail, Ralph pauses.
+- **post_item**: Run after the checkpoint. Failures are logged but don't stop progress.
 
-## Progress Tracking
+## Supported Agents
 
-`progress.txt` becomes a living log:
+| Agent | Command | Description |
+|-------|---------|-------------|
+| `claude` | `claude --dangerously-skip-permissions -p` | Claude Code (default) |
+| `codex` | `codex exec --yolo -p` | Codex CLI |
+| `gemini` | `gemini -p` | Gemini CLI |
 
-```markdown
-# Progress Log
-
-## Session Start: 2025-02-04 22:30:00
-
----
-
-## Item 1: Project scaffolding ✅
-
-**Route:** A (Simple)
-**Time:** 2 minutes
-
-**Files created:**
-- pyproject.toml
-- src/myproject/__init__.py
-- src/myproject/cli.py
-
-**Decisions:**
-- Used hatchling as build backend
-- Typer for CLI framework
-
-**Verification:** ✓ myproject --help shows usage
-
----
-
-## Item 2: Core feature X ✅
-
-**Route:** B (Medium)
-**Time:** 5 minutes
-
-...
-```
-
-## Agent Comparison
-
-| Feature | Claude Code | Codex CLI | Gemini CLI |
-|---------|-------------|-----------|------------|
-| **Non-interactive flag** | `--dangerously-skip-permissions -p` | `exec --yolo` | `-p` |
-| **File access** | Full | Sandboxed (configurable) | Full |
-| **Shell commands** | Yes | Yes | Yes |
-| **Free tier** | No | No | 1000 req/day |
-| **Best for** | Complex reasoning | Fast iteration | Long context |
-
-## Cage Match Mode (Coming Soon)
-
-Run the same PRD with multiple agents in parallel on separate branches:
+Select agent with `-a/--agent`:
 
 ```bash
-./sisyphus.sh --cage-match prd.json
-# Creates: branch claude-attempt, codex-attempt, gemini-attempt
-# Runs all three in parallel
-# Reports: time, commits, test coverage
-# You pick the winner to merge
+ralph start prd.json -a codex
 ```
 
-## Tips
+## State Management
 
-1. **Start small**: First PRD item should be scaffolding/setup
-2. **Verifiable items**: Each item needs clear pass/fail criteria
-3. **TDD requirement**: Include test verification in each item
-4. **Priority ordering**: Use priority field to control sequence
-5. **One thing at a time**: Each item should be a single, focused change
+Ralph stores state in `.ralph/state.json` (added to `.gitignore`):
 
-## Why "Sisyphus"?
+```json
+{
+  "branch": "ralph/my-project-20240101-1200",
+  "prd_path": "/path/to/prd.json",
+  "current_item": 3,
+  "completed_items": [1, 2],
+  "started_at": "2024-01-01T12:00:00",
+  "checkpoints": [
+    {
+      "item_id": 1,
+      "commit_sha": "abc123...",
+      "timestamp": "2024-01-01T12:05:00",
+      "files_changed": ["src/main.py"],
+      "tests_passed": true
+    }
+  ]
+}
+```
 
-In Greek mythology, Sisyphus was condemned to roll a boulder up a hill for eternity—each time it reached the top, it would roll back down.
+## Migration from sisyphus.sh
 
-Camus saw this as a metaphor for human existence: repetitive, seemingly meaningless, yet potentially joyful. The act of pushing the boulder *is* the meaning.
+Ralph replaces `sisyphus.sh` with these improvements:
 
-Autonomous coding loops are similar: read task, implement, test, commit, repeat. Forever, or until the PRD is done. The joy is in the push.
+| Feature | sisyphus.sh | Ralph |
+|---------|-------------|-------|
+| Branch isolation | ❌ | ✅ Automatic branch per PRD |
+| Checkpoints | ❌ | ✅ Auto-commit after each item |
+| Resume support | ❌ | ✅ `ralph resume` |
+| Rollback | ❌ | ✅ `ralph rollback` |
+| PR generation | ❌ | ✅ `ralph pr` |
+| Multiple agents | Limited | ✅ claude, codex, gemini |
+| State persistence | ❌ | ✅ `.ralph/state.json` |
+| Validation hooks | ❌ | ✅ pre_commit, post_item |
+
+### Migration Steps
+
+1. Install Ralph: `pip install -e .`
+2. Convert your task list to PRD JSON format
+3. Run `ralph start your-prd.json`
+
+## Development
+
+```bash
+# Install with dev dependencies
+pip install -e ".[dev]"
+
+# Run tests
+pytest -v
+
+# Type checking
+mypy src/ralph
+
+# Linting
+ruff check src/ralph
+```
 
 ## License
 
-MIT - Push freely.
-
-## Credits
-
-Built by [Zoidberg](https://github.com/zoidbergclawd) in a dumpster, with love.
-
-Inspired by:
-- [Claude Code](https://docs.anthropic.com/)
-- [do-work](https://github.com/bladnman/do-work) by bladnman
-- The eternal boulder
+MIT
