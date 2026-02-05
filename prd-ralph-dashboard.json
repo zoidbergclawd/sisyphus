@@ -1,0 +1,296 @@
+{
+  "project": "Ralph Dashboard",
+  "goal": "A real-time web UI for watching Ralph runs. Kanban-style PRD progress, live metrics, git state, test coverage \u2014 watch the magic happen.",
+  "tech_stack": {
+    "language": "TypeScript",
+    "framework": "Next.js 14 (App Router)",
+    "styling": "Tailwind CSS + shadcn/ui",
+    "state": "React Query + WebSocket for real-time",
+    "backend": "Ralph CLI exposes status via JSON file or simple HTTP endpoint",
+    "testing": "Vitest + Playwright",
+    "notes": "Static export possible for simplicity, or full Next.js for WebSocket support"
+  },
+  "context": {
+    "target_user": "Developers watching Ralph autonomous coding loops",
+    "constraints": "Must work with existing Ralph CLI, read .ralph/state.json and git state",
+    "references": "Ralph CLI, Linear/Jira for kanban inspiration, Codecov for coverage UI"
+  },
+  "items": [
+    {
+      "id": 1,
+      "category": "setup",
+      "title": "Project scaffolding",
+      "description": "Initialize Next.js 14 project with Tailwind, shadcn/ui, and basic layout",
+      "priority": 1,
+      "passes": true,
+      "verification": "npm run dev serves app at localhost:3000 with basic layout",
+      "steps": [
+        "npx create-next-app with TypeScript, Tailwind, App Router",
+        "Install and configure shadcn/ui",
+        "Create basic layout: header, main content area, sidebar",
+        "Add dark mode support (default dark)",
+        "Verify dev server runs"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 2,
+      "category": "core",
+      "title": "Ralph state reader",
+      "description": "Module to read and parse Ralph run state from .ralph/state.json and prd.json",
+      "priority": 1,
+      "passes": true,
+      "verification": "Unit tests pass for state parsing, handles missing/malformed files gracefully",
+      "steps": [
+        "Create lib/ralph-state.ts",
+        "Type definitions for RalphState, PRDItem, Checkpoint",
+        "Function to read state.json from a given project path",
+        "Function to read and parse prd.json",
+        "Merge state + PRD into unified view",
+        "Handle edge cases: no state, partial state, corrupted files"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 3,
+      "category": "core",
+      "title": "Git state reader",
+      "description": "Module to extract git information: branch, commits, diff stats",
+      "priority": 1,
+      "passes": true,
+      "verification": "Can read branch name, recent commits, and diff stats from a repo path",
+      "steps": [
+        "Create lib/git-state.ts",
+        "Use simple-git or shell out to git commands",
+        "Get: current branch, commit count on branch, last N commit messages",
+        "Get: diff stats vs main/master (files changed, insertions, deletions)",
+        "Get: uncommitted changes summary"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 4,
+      "category": "core",
+      "title": "Code metrics reader",
+      "description": "Module to gather code metrics: lines of code, file count, test count",
+      "priority": 1,
+      "passes": true,
+      "verification": "Returns LOC, file count, test file count for a given project path",
+      "steps": [
+        "Create lib/code-metrics.ts",
+        "Use tokei, cloc, or simple file counting",
+        "Metrics: total LOC, LOC by language, file count, test file count",
+        "Optionally parse pytest/jest output for test count if available"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 5,
+      "category": "core",
+      "title": "Test coverage reader",
+      "description": "Module to parse test coverage reports (coverage.json, lcov, etc.)",
+      "priority": 2,
+      "passes": false,
+      "verification": "Can parse coverage.json or lcov.info and return percentage + file breakdown",
+      "steps": [
+        "Create lib/coverage-reader.ts",
+        "Support coverage.json (Jest/Istanbul format)",
+        "Support lcov.info (common format)",
+        "Support coverage.xml (Cobertura format)",
+        "Return: overall percentage, per-file percentages, uncovered lines"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 6,
+      "category": "api",
+      "title": "API routes for state",
+      "description": "Next.js API routes to serve Ralph state, git state, metrics",
+      "priority": 1,
+      "passes": false,
+      "verification": "Unit tests for /api/state pass (mocked request)",
+      "steps": [
+        "Create app/api/state/route.ts",
+        "Accept project path as query param or env var",
+        "Return combined state: ralph, git, metrics, coverage",
+        "Add /api/health endpoint",
+        "Handle errors gracefully with proper HTTP codes"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 7,
+      "category": "ui",
+      "title": "Kanban board component",
+      "description": "Kanban-style board showing PRD items in columns: Todo, In Progress, Done",
+      "priority": 1,
+      "passes": false,
+      "verification": "Board renders with items in correct columns based on state",
+      "steps": [
+        "Create components/KanbanBoard.tsx",
+        "Columns: Backlog (not started), In Progress (current), Done (passes=true)",
+        "Cards show: item title, category badge, priority indicator",
+        "Click card to expand: full description, steps, verification",
+        "Visual indication of current item (glow/pulse animation)"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 8,
+      "category": "ui",
+      "title": "Progress overview panel",
+      "description": "Summary panel showing overall progress: items done, time elapsed, ETA",
+      "priority": 1,
+      "passes": false,
+      "verification": "Panel shows X/Y items complete, elapsed time, progress bar",
+      "steps": [
+        "Create components/ProgressPanel.tsx",
+        "Show: X of Y items complete",
+        "Progress bar (percentage)",
+        "Time elapsed since start",
+        "Average time per item (for ETA)",
+        "Current item title prominently displayed"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 9,
+      "category": "ui",
+      "title": "Git state panel",
+      "description": "Panel showing git information: branch, commits, diff summary",
+      "priority": 1,
+      "passes": false,
+      "verification": "Panel shows branch name, commit count, files changed",
+      "steps": [
+        "Create components/GitPanel.tsx",
+        "Show: branch name with copy button",
+        "Show: commit count on branch",
+        "Show: diff stats (files changed, +lines, -lines)",
+        "Mini commit log (last 5 commits with messages)",
+        "Link to GitHub/GitLab if remote detected"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 10,
+      "category": "ui",
+      "title": "Metrics panel",
+      "description": "Panel showing code metrics: LOC, files, tests, coverage",
+      "priority": 1,
+      "passes": false,
+      "verification": "Panel shows LOC, file count, test count, coverage percentage",
+      "steps": [
+        "Create components/MetricsPanel.tsx",
+        "Show: total lines of code (with delta from start if available)",
+        "Show: file count",
+        "Show: test count",
+        "Show: coverage percentage with color coding (red/yellow/green)",
+        "Mini chart showing coverage trend if multiple data points"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 11,
+      "category": "ui",
+      "title": "Activity log panel",
+      "description": "Scrolling log of Ralph activity: checkpoints, commits, test runs",
+      "priority": 2,
+      "passes": false,
+      "verification": "Log shows timestamped entries for completed items and commits",
+      "steps": [
+        "Create components/ActivityLog.tsx",
+        "Parse checkpoints from state.json",
+        "Show: timestamp, item completed, files changed",
+        "Show: test results if available",
+        "Auto-scroll to latest, with pause on hover",
+        "Color coding: green=success, yellow=warning, red=failure"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 12,
+      "category": "realtime",
+      "title": "File watcher for live updates",
+      "description": "Watch .ralph/state.json and prd.json for changes, trigger UI updates",
+      "priority": 1,
+      "passes": false,
+      "verification": "UI updates within 1 second of state.json change",
+      "steps": [
+        "Option A: Polling API every 2 seconds (simple)",
+        "Option B: WebSocket with chokidar file watcher (responsive)",
+        "Implement Option A first, Option B as enhancement",
+        "React Query with refetchInterval for polling",
+        "Visual indicator when data refreshes"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 13,
+      "category": "ui",
+      "title": "Main dashboard layout",
+      "description": "Compose all panels into a cohesive dashboard layout",
+      "priority": 1,
+      "passes": false,
+      "verification": "Dashboard shows all panels in responsive grid layout",
+      "steps": [
+        "Create app/page.tsx as main dashboard",
+        "Layout: Kanban board (main area), sidebar (progress, git, metrics)",
+        "Activity log at bottom or in sidebar",
+        "Responsive: stack on mobile, grid on desktop",
+        "Dark theme by default, optional light mode toggle"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 14,
+      "category": "config",
+      "title": "Project configuration",
+      "description": "Allow configuring which project/path to monitor",
+      "priority": 2,
+      "passes": false,
+      "verification": "Can set project path via env var, URL param, or config file",
+      "steps": [
+        "Support RALPH_PROJECT_PATH env var",
+        "Support ?path= URL parameter",
+        "Support config.json file",
+        "Show project selector if multiple paths configured",
+        "Persist last selected project in localStorage"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 15,
+      "category": "polish",
+      "title": "Animations and visual polish",
+      "description": "Add animations for state changes, transitions, and visual feedback",
+      "priority": 2,
+      "passes": false,
+      "verification": "Cards animate when moving columns, numbers animate on change",
+      "steps": [
+        "Use Framer Motion for animations",
+        "Card entrance/exit animations",
+        "Number counting animations for metrics",
+        "Pulse animation on current item",
+        "Celebration animation when all items complete \ud83c\udf89"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 16,
+      "category": "polish",
+      "title": "Documentation and README",
+      "description": "Add README with setup instructions, screenshots, configuration guide",
+      "priority": 3,
+      "passes": false,
+      "verification": "README has install instructions, usage, screenshots",
+      "steps": [
+        "Installation: npm install, configure path",
+        "Usage: npm run dev, or npm run build for production",
+        "Configuration options",
+        "Screenshots of dashboard",
+        "Integration with Ralph CLI"
+      ],
+      "notes": ""
+    }
+  ]
+}
