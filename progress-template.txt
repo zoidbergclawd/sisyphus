@@ -1,0 +1,9 @@
+# Sisyphus Progress Log
+
+> The boulder rolls. We push.
+
+## Session Start: [DATE]
+
+---
+
+<!-- Items will be appended below as they complete -->

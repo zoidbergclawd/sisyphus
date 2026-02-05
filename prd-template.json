@@ -1,0 +1,82 @@
+{
+  "project": "Example Project",
+  "goal": "A brief description of what we're building and why",
+  "tech_stack": {
+    "language": "Python 3.11+",
+    "framework": "Your framework here",
+    "testing": "pytest",
+    "notes": "Any additional tech stack notes"
+  },
+  "context": {
+    "target_user": "Who is this for?",
+    "constraints": "Any limitations or requirements",
+    "references": "Links to docs, examples, etc."
+  },
+  "items": [
+    {
+      "id": 1,
+      "category": "setup",
+      "title": "Project scaffolding",
+      "description": "Initialize project structure with build config and dependencies",
+      "priority": 1,
+      "passes": false,
+      "verification": "pip install -e . && myproject --help shows usage",
+      "steps": [
+        "Create pyproject.toml with dependencies",
+        "Create src/myproject/ package structure",
+        "Create basic CLI with --help and --version",
+        "Verify installation works"
+      ]
+    },
+    {
+      "id": 2,
+      "category": "core",
+      "title": "Core feature implementation",
+      "description": "Implement the main functionality of the project",
+      "priority": 1,
+      "passes": false,
+      "verification": "pytest tests/test_core.py -v passes with 100% coverage",
+      "steps": [
+        "Write tests specifying expected behavior",
+        "Implement core logic",
+        "Add error handling",
+        "Verify tests pass"
+      ],
+      "notes": "This is the heart of the project. Take time to get it right."
+    },
+    {
+      "id": 3,
+      "category": "integration",
+      "title": "External API integration",
+      "description": "Connect to external service X",
+      "priority": 2,
+      "passes": false,
+      "verification": "Integration tests pass against live/mock API",
+      "steps": [
+        "Create API client class",
+        "Handle authentication",
+        "Implement core API methods",
+        "Add retry logic and error handling",
+        "Write integration tests"
+      ]
+    },
+    {
+      "id": 4,
+      "category": "cli",
+      "title": "CLI commands",
+      "description": "Add user-facing CLI commands",
+      "priority": 2,
+      "passes": false,
+      "verification": "All CLI commands work and have --help text"
+    },
+    {
+      "id": 5,
+      "category": "polish",
+      "title": "Documentation and examples",
+      "description": "Add README, docstrings, and usage examples",
+      "priority": 3,
+      "passes": false,
+      "verification": "README has quickstart, all public functions have docstrings"
+    }
+  ]
+}
