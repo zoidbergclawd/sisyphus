@@ -1,0 +1,276 @@
+{
+  "project": "Ralph CLI",
+  "goal": "Evolve Sisyphus from a bash script into a robust CLI with branch isolation, checkpoints, recovery, and pull request workflow. Named for 'Ralphing' - our term for autonomous coding loops.",
+  "tech_stack": {
+    "language": "Python 3.11+",
+    "framework": "Typer (CLI) + Rich (output)",
+    "testing": "pytest",
+    "vcs": "git",
+    "notes": "Replaces sisyphus.sh with `ralph` command. Supports Claude Code, Codex CLI, Gemini CLI as agents."
+  },
+  "context": {
+    "target_user": "Developers using AI coding agents for autonomous implementation loops",
+    "constraints": "Must work with existing prd.json format for backwards compatibility",
+    "references": "sisyphus.sh, do-work by bladnman"
+  },
+  "items": [
+    {
+      "id": 1,
+      "category": "setup",
+      "title": "Project scaffolding",
+      "description": "Initialize ralph CLI package with Typer, Rich, and basic command structure",
+      "priority": 1,
+      "passes": true,
+      "verification": "pip install -e . && ralph --help shows all commands",
+      "steps": [
+        "Create pyproject.toml with typer, rich, gitpython dependencies",
+        "Create src/ralph/ package structure",
+        "Create main CLI with ralph --help and ralph --version",
+        "Port PRD loading from sisyphus.sh",
+        "Verify installation works"
+      ]
+    },
+    {
+      "id": 2,
+      "category": "core",
+      "title": "Branch-per-PRD workflow",
+      "description": "Each PRD run creates its own git branch. All work happens on that branch, never on main.",
+      "priority": 1,
+      "passes": true,
+      "verification": "ralph start creates branch 'ralph/<prd-name>-<timestamp>', all commits land there",
+      "steps": [
+        "On `ralph start`, create new branch from current HEAD: ralph/<prd-project>-YYYYMMDD-HHMM",
+        "Refuse to run if working directory is dirty (uncommitted changes)",
+        "Store branch name in .ralph/state.json",
+        "All subsequent ralph commands operate on this branch"
+      ],
+      "notes": "This is the primary safety net. Main stays clean until PR review."
+    },
+    {
+      "id": 3,
+      "category": "core",
+      "title": "Checkpoint commits",
+      "description": "Auto-commit after each completed PRD item with semantic commit messages",
+      "priority": 1,
+      "passes": true,
+      "verification": "After completing item 3, git log shows '[ralph] item-3: <title>' commit",
+      "steps": [
+        "After each PRD item completes verification, stage all changes",
+        "Create commit with format: [ralph] item-<id>: <title>",
+        "Include in commit body: files changed, tests run, route taken (A/B/C)",
+        "Update .ralph/state.json with completed item",
+        "Optional: auto-push to remote if --push flag set"
+      ]
+    },
+    {
+      "id": 4,
+      "category": "core",
+      "title": "State management (.ralph/)",
+      "description": "Persistent state directory for tracking progress, enabling resume and rollback",
+      "priority": 1,
+      "passes": true,
+      "verification": ".ralph/state.json contains branch, current_item, completed_items, started_at",
+      "steps": [
+        "Create .ralph/ directory on ralph start",
+        "Add .ralph/ to .gitignore (state is local, not committed)",
+        "state.json schema: { branch, prd_path, current_item, completed_items[], started_at, checkpoints[] }",
+        "checkpoint entry: { item_id, commit_sha, timestamp, files_changed }",
+        "Load state on any ralph command, fail gracefully if no state"
+      ]
+    },
+    {
+      "id": 5,
+      "category": "commands",
+      "title": "ralph start",
+      "description": "Initialize a new Ralph run: create branch, load PRD, begin first item",
+      "priority": 1,
+      "passes": true,
+      "verification": "ralph start prd.json creates branch, shows PRD summary, begins item 1",
+      "steps": [
+        "Parse and validate prd.json",
+        "Check for dirty working directory (abort if dirty)",
+        "Create feature branch",
+        "Initialize .ralph/state.json",
+        "Display PRD summary (project, goal, item count)",
+        "Begin processing first item by priority"
+      ]
+    },
+    {
+      "id": 6,
+      "category": "commands",
+      "title": "ralph status",
+      "description": "Show current Ralph run status: branch, progress, uncommitted changes",
+      "priority": 1,
+      "passes": true,
+      "verification": "ralph status shows branch name, 'Item 4/12', time elapsed, files changed",
+      "steps": [
+        "Load .ralph/state.json",
+        "Show: branch name, PRD name, current item (N/total), items completed",
+        "Show: time elapsed since start",
+        "Show: uncommitted changes if any",
+        "Show: next item title and description"
+      ]
+    },
+    {
+      "id": 7,
+      "category": "commands",
+      "title": "ralph resume",
+      "description": "Resume an interrupted Ralph run from where it left off",
+      "priority": 1,
+      "passes": true,
+      "verification": "After Ctrl+C and ralph resume, continues from last incomplete item",
+      "steps": [
+        "Load .ralph/state.json",
+        "Verify we're on the correct branch (checkout if not)",
+        "Find first item where passes=false",
+        "Resume processing from that item",
+        "Handle case where all items complete (suggest ralph pr)"
+      ]
+    },
+    {
+      "id": 8,
+      "category": "commands",
+      "title": "ralph rollback",
+      "description": "Undo last N completed items by reverting commits",
+      "priority": 1,
+      "passes": true,
+      "verification": "ralph rollback 2 reverts last 2 item commits, updates state.json",
+      "steps": [
+        "Parse N from argument (default 1)",
+        "Load checkpoints from state.json",
+        "git revert last N checkpoint commits (or git reset --hard if preferred)",
+        "Update state.json: remove rolled-back items from completed_items",
+        "Mark those PRD items as passes=false",
+        "Show what was rolled back"
+      ],
+      "notes": "Prefer revert over reset for safety (preserves history). Offer --hard flag for reset."
+    },
+    {
+      "id": 9,
+      "category": "commands",
+      "title": "ralph diff",
+      "description": "Show summary of all changes since branch creation",
+      "priority": 2,
+      "passes": true,
+      "verification": "ralph diff shows files changed, insertions, deletions vs base branch",
+      "steps": [
+        "Find merge-base with main/master",
+        "Run git diff --stat against merge-base",
+        "Group changes by PRD item (using commit messages)",
+        "Show total: files changed, insertions, deletions"
+      ]
+    },
+    {
+      "id": 10,
+      "category": "commands", 
+      "title": "ralph dry-run",
+      "description": "Preview what Ralph would do without executing",
+      "priority": 2,
+      "passes": true,
+      "verification": "ralph dry-run shows plan for each item without making changes",
+      "steps": [
+        "Load PRD and current state",
+        "For each remaining item, show: title, description, verification, estimated route",
+        "Show what branch would be created (if not started)",
+        "Show what commits would be made",
+        "No actual changes made"
+      ]
+    },
+    {
+      "id": 11,
+      "category": "commands",
+      "title": "ralph pr",
+      "description": "Open pull request with auto-generated description",
+      "priority": 1,
+      "passes": true,
+      "verification": "ralph pr creates GitHub/GitLab PR with PRD summary, items completed, test results",
+      "steps": [
+        "Verify all items complete (or allow --force for partial)",
+        "Push branch to remote if not already pushed",
+        "Generate PR body from: PRD goal, items completed, checkpoints, test summary",
+        "Use gh pr create (GitHub) or glab mr create (GitLab)",
+        "Show PR URL",
+        "Update state.json with PR URL"
+      ],
+      "notes": "Detect git remote to choose gh vs glab. Fall back to manual instructions if neither available."
+    },
+    {
+      "id": 12,
+      "category": "quality",
+      "title": "Auto-test after each item",
+      "description": "Run test suite after each item, fail fast if tests break",
+      "priority": 1,
+      "passes": true,
+      "verification": "If tests fail after item completion, ralph pauses and reports failure",
+      "steps": [
+        "After item verification passes, run full test suite",
+        "If tests fail: pause, show failure, ask to continue or rollback",
+        "If tests pass: proceed to checkpoint commit",
+        "Track test results in checkpoint entry"
+      ]
+    },
+    {
+      "id": 13,
+      "category": "quality",
+      "title": "Validation hooks",
+      "description": "Custom pre-commit hooks that must pass before proceeding",
+      "priority": 2,
+      "passes": true,
+      "verification": "ralph start with hooks config runs lint/typecheck after each item",
+      "steps": [
+        "Add 'hooks' section to PRD: { pre_commit: ['ruff check', 'mypy'] }",
+        "After item completion, run each hook command",
+        "If any hook fails: pause, show output, ask to fix or skip",
+        "Record hook results in checkpoint"
+      ]
+    },
+    {
+      "id": 14,
+      "category": "agents",
+      "title": "Multi-agent support",
+      "description": "Support Claude Code, Codex CLI, Gemini CLI as coding agents",
+      "priority": 1,
+      "passes": true,
+      "verification": "ralph start -a codex uses Codex, ralph start -a gemini uses Gemini",
+      "steps": [
+        "Port agent detection from sisyphus.sh",
+        "Agent config: claude (--dangerously-skip-permissions -p), codex (exec --yolo), gemini (-p)",
+        "Detect installed agents on startup",
+        "Allow agent selection via -a/--agent flag",
+        "Default to claude if available"
+      ]
+    },
+    {
+      "id": 15,
+      "category": "polish",
+      "title": "Rich console output",
+      "description": "Beautiful terminal output with progress bars, tables, colors",
+      "priority": 2,
+      "passes": true,
+      "verification": "ralph status shows colored tables, ralph start shows progress bar",
+      "steps": [
+        "Use Rich for all output",
+        "Progress bar during item execution",
+        "Tables for status and diff output",
+        "Color coding: green=pass, red=fail, yellow=in-progress",
+        "Spinners during agent execution"
+      ]
+    },
+    {
+      "id": 16,
+      "category": "polish",
+      "title": "Documentation and README",
+      "description": "Update README for ralph CLI, add examples and migration from sisyphus.sh",
+      "priority": 3,
+      "passes": true,
+      "verification": "README has install instructions, all commands documented, migration guide",
+      "steps": [
+        "Installation: pip install ralph-cli (or local)",
+        "Quick start guide",
+        "Command reference with examples",
+        "Migration from sisyphus.sh",
+        "PRD format documentation"
+      ]
+    }
+  ]
+}
