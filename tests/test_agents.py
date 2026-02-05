@@ -327,3 +327,25 @@ class TestAgentModelSupport:
         )
         cmd = agent.build_command("hello", model="custom-model")
         assert cmd == ["test", "exec", "--model", "custom-model", "-p", "hello"]
+
+    def test_build_command_positional_prompt(self):
+        """Build command with positional prompt (no flag)."""
+        agent = Agent(
+            name="Test",
+            command="test",
+            args=["exec"],
+            prompt_flag="",  # Empty = positional
+        )
+        cmd = agent.build_command("hello")
+        assert cmd == ["test", "exec", "hello"]
+
+    def test_build_command_positional_with_model(self):
+        """Build command with positional prompt and model."""
+        agent = Agent(
+            name="Test",
+            command="test",
+            args=["exec"],
+            prompt_flag="",
+        )
+        cmd = agent.build_command("hello", model="gpt-5")
+        assert cmd == ["test", "exec", "-m", "gpt-5", "hello"]

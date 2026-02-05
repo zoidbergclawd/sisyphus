@@ -16,7 +16,7 @@ class Agent:
     name: str
     command: str
     args: list[str]
-    prompt_flag: str
+    prompt_flag: str  # Use "" for positional prompt (no flag)
     model_flag: str = "-m"  # Flag for model specification
     available: bool = False
 
@@ -25,7 +25,11 @@ class Agent:
         cmd = [self.command, *self.args]
         if model:
             cmd.extend([self.model_flag, model])
-        cmd.extend([self.prompt_flag, prompt])
+        if self.prompt_flag:
+            cmd.extend([self.prompt_flag, prompt])
+        else:
+            # Positional prompt (no flag)
+            cmd.append(prompt)
         return cmd
 
 
@@ -123,7 +127,7 @@ AGENTS: dict[str, Agent] = {
         name="Codex CLI",
         command="codex",
         args=["exec", "--yolo"],
-        prompt_flag="-p",
+        prompt_flag="",  # Codex uses positional prompt, not a flag
     ),
     "gemini": Agent(
         name="Gemini CLI",
