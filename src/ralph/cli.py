@@ -91,7 +91,11 @@ def _show_item_panel(item: "PRDItem", current: int, total: int) -> None:  # type
 
 
 def _detect_test_runner() -> list[str] | None:
-    """Detect test runner based on project files."""
+    """Detect test runner based on project files.
+    
+    Returns None if no test infrastructure is detected,
+    allowing Ralph to skip the test phase for early-stage projects.
+    """
     # Check for Node.js project with test script
     if Path("package.json").exists():
         try:
@@ -103,12 +107,16 @@ def _detect_test_runner() -> list[str] | None:
         except (json.JSONDecodeError, KeyError):
             pass
     
-    # Check for Python project
+    # Check for Python project with test infrastructure
     if Path("pyproject.toml").exists() or Path("setup.py").exists() or Path("pytest.ini").exists():
         return ["pytest", "-v", "--tb=short"]
     
-    # Default to pytest if nothing detected
-    return ["pytest", "-v", "--tb=short"]
+    # Check if tests directory exists (Python convention)
+    if Path("tests").is_dir() or Path("test").is_dir():
+        return ["pytest", "-v", "--tb=short"]
+    
+    # No test infrastructure detected - skip tests
+    return None
 
 
 def _run_tests() -> tuple[bool, str]:
