@@ -289,3 +289,41 @@ class TestRunAgentWithWatchdog:
         assert watchdog_result.triggered
         # The message should indicate the watchdog fired
         assert "silent" in watchdog_result.message.lower() or "too long" in watchdog_result.message.lower()
+
+
+class TestAgentModelSupport:
+    """Test model parameter support."""
+
+    def test_build_command_without_model(self):
+        """Build command without model flag."""
+        agent = Agent(
+            name="Test",
+            command="test",
+            args=["exec"],
+            prompt_flag="-p",
+        )
+        cmd = agent.build_command("hello")
+        assert cmd == ["test", "exec", "-p", "hello"]
+
+    def test_build_command_with_model(self):
+        """Build command with model flag."""
+        agent = Agent(
+            name="Test",
+            command="test",
+            args=["exec"],
+            prompt_flag="-p",
+        )
+        cmd = agent.build_command("hello", model="gpt-5.3-codex")
+        assert cmd == ["test", "exec", "-m", "gpt-5.3-codex", "-p", "hello"]
+
+    def test_build_command_custom_model_flag(self):
+        """Build command with custom model flag."""
+        agent = Agent(
+            name="Test",
+            command="test",
+            args=["exec"],
+            prompt_flag="-p",
+            model_flag="--model",
+        )
+        cmd = agent.build_command("hello", model="custom-model")
+        assert cmd == ["test", "exec", "--model", "custom-model", "-p", "hello"]

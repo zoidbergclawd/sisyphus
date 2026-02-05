@@ -51,6 +51,7 @@ class RalphState:
     started_at: str = ""
     checkpoints: list[Checkpoint] = field(default_factory=list)
     agent: str = "claude"
+    model: str | None = None  # Model to pass to agent (e.g., gpt-5.3-codex)
     auto_push: bool = False
     pr_url: str | None = None
     base_branch: str = "main"
@@ -101,6 +102,7 @@ class RalphState:
             started_at=data.get("started_at", ""),
             checkpoints=[Checkpoint.from_dict(c) for c in data.get("checkpoints", [])],
             agent=data.get("agent", "claude"),
+            model=data.get("model"),
             auto_push=data.get("auto_push", False),
             pr_url=data.get("pr_url"),
             base_branch=data.get("base_branch", "main"),
@@ -134,6 +136,7 @@ class RalphState:
             "started_at": self.started_at,
             "checkpoints": [c.to_dict() for c in self.checkpoints],
             "agent": self.agent,
+            "model": self.model,
             "auto_push": self.auto_push,
             "pr_url": self.pr_url,
             "base_branch": self.base_branch,

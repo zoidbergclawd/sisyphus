@@ -506,3 +506,45 @@ class TestWatchdogState:
         # Verify persisted
         loaded = RalphState.load()
         assert loaded.watchdog_triggered is False
+
+
+class TestModelState:
+    """Test model field in state."""
+
+    def test_model_default_none(self, tmp_path, monkeypatch):
+        """Model defaults to None."""
+        monkeypatch.chdir(tmp_path)
+        state = RalphState(
+            branch="test",
+            prd_path="test.json",
+            current_item=None,
+        )
+        assert state.model is None
+
+    def test_model_save_and_load(self, tmp_path, monkeypatch):
+        """Model is persisted."""
+        monkeypatch.chdir(tmp_path)
+        state = RalphState(
+            branch="test",
+            prd_path="test.json",
+            current_item=None,
+            model="gpt-5.3-codex",
+        )
+        state.save()
+
+        loaded = RalphState.load()
+        assert loaded.model == "gpt-5.3-codex"
+
+    def test_model_none_save_and_load(self, tmp_path, monkeypatch):
+        """Model None is persisted correctly."""
+        monkeypatch.chdir(tmp_path)
+        state = RalphState(
+            branch="test",
+            prd_path="test.json",
+            current_item=None,
+            model=None,
+        )
+        state.save()
+
+        loaded = RalphState.load()
+        assert loaded.model is None

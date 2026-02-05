@@ -17,11 +17,16 @@ class Agent:
     command: str
     args: list[str]
     prompt_flag: str
+    model_flag: str = "-m"  # Flag for model specification
     available: bool = False
 
-    def build_command(self, prompt: str) -> list[str]:
+    def build_command(self, prompt: str, model: str | None = None) -> list[str]:
         """Build the full command to run the agent."""
-        return [self.command, *self.args, self.prompt_flag, prompt]
+        cmd = [self.command, *self.args]
+        if model:
+            cmd.extend([self.model_flag, model])
+        cmd.extend([self.prompt_flag, prompt])
+        return cmd
 
 
 @dataclass
@@ -165,6 +170,7 @@ def run_agent(
     log_file: Path | None = None,
     watchdog_timeout: int = 0,
     on_watchdog_timeout: Callable[[float], None] | None = None,
+    model: str | None = None,
 ) -> tuple[int, str, WatchdogResult | None]:
     """
     Run an agent with the given prompt.
@@ -177,10 +183,11 @@ def run_agent(
         log_file: Optional file path to log all output
         watchdog_timeout: Seconds of silence before triggering watchdog (0 = disabled)
         on_watchdog_timeout: Callback when watchdog timeout is triggered
+        model: Optional model name to pass to the agent
 
     Returns (exit_code, output, watchdog_result).
     """
-    cmd = agent.build_command(prompt)
+    cmd = agent.build_command(prompt, model=model)
 
     # Open log file if provided
     log_handle = None

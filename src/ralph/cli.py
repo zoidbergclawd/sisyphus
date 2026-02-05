@@ -161,6 +161,7 @@ def _create_checkpoint(
 def start(
     prd_path: str = typer.Argument(..., help="Path to PRD JSON file"),
     agent: str = typer.Option("claude", "-a", "--agent", help="Agent to use: claude, codex, gemini"),
+    model: str = typer.Option(None, "-m", "--model", help="Model to pass to agent (e.g., gpt-5.3-codex)"),
     push: bool = typer.Option(False, "--push", help="Auto-push to remote after each checkpoint"),
     skip_dirty_check: bool = typer.Option(False, "--force", help="Skip dirty working directory check"),
     watchdog_timeout: int = typer.Option(600, "--watchdog-timeout", help="Seconds of silence before watchdog triggers (0 to disable, default 600 = 10 min)"),
@@ -224,6 +225,7 @@ def start(
         prd_path=str(Path(prd_path).resolve()),
         current_item=None,
         agent=agent,
+        model=model,
         auto_push=push,
         base_branch=base_branch,
         watchdog_timeout=watchdog_timeout,
@@ -319,6 +321,7 @@ def _process_items(state: RalphState, prd: PRD, git: GitOps, agent: "Agent") -> 
                 log_file=log_file,
                 watchdog_timeout=state.watchdog_timeout,
                 on_watchdog_timeout=on_watchdog_timeout,
+                model=state.model,
             )
 
         # Report watchdog status if it was triggered
@@ -397,7 +400,10 @@ def status() -> None:
 
     table.add_row("Branch", state.branch)
     table.add_row("PRD", Path(state.prd_path).name)
-    table.add_row("Agent", state.agent)
+    agent_display = state.agent
+    if state.model:
+        agent_display += f" [dim]({state.model})[/dim]"
+    table.add_row("Agent", agent_display)
     table.add_row("Progress", f"[bold]{prd.completed_count}/{prd.total_count}[/bold] items")
     table.add_row("Elapsed", state.elapsed_time)
 
