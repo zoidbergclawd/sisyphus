@@ -471,6 +471,65 @@ def rollback(
     console.print(f"Progress: {prd.completed_count}/{prd.total_count}")
 
 
+@app.command("reset-item")
+def reset_item(
+    item_id: int = typer.Argument(..., help="Item ID to reset"),
+    hard: bool = typer.Option(False, "--hard", help="Use git reset instead of revert (destructive)"),
+    current: bool = typer.Option(False, "--current", help="Set item as current after reset"),
+) -> None:
+    """Reset a specific item's state and revert its changes."""
+    if not RalphState.exists():
+        console.print("[red]✗ No Ralph run found.[/red]")
+        raise typer.Exit(1)
+
+    state = RalphState.load()
+    prd = PRD.load(state.prd_path)
+
+    # Verify item exists
+    item = prd.get_item(item_id)
+    if not item:
+        console.print(f"[red]✗ Item {item_id} not found in PRD.[/red]")
+        raise typer.Exit(1)
+
+    # Get checkpoint for this item
+    checkpoint = state.get_checkpoint(item_id)
+    if not checkpoint:
+        console.print(f"[yellow]⚠ Item {item_id} has no checkpoint to reset.[/yellow]")
+        raise typer.Exit(1)
+
+    # Perform git operations
+    try:
+        git = GitOps()
+
+        if hard:
+            # Hard reset to parent commit (before this item's work)
+            parent = f"{checkpoint.commit_sha}^"
+            git.reset_hard(parent)
+            console.print(f"[yellow]Hard reset to before item {item_id}[/yellow]")
+        else:
+            # Safe revert
+            git.revert_commit(checkpoint.commit_sha)
+            console.print(f"[yellow]Reverted commit for item {item_id}[/yellow]")
+    except GitError as e:
+        console.print(f"[red]✗ Git error: {e}[/red]")
+        raise typer.Exit(1)
+
+    # Update PRD - mark item as not passing
+    item.passes = False
+    prd.save()
+
+    # Remove checkpoint from state
+    state.remove_checkpoint(item_id)
+
+    # Optionally set as current item
+    if current:
+        state.current_item = item_id
+        state.save()
+
+    console.print(f"[green]✓ Reset item {item_id}: {item.title}[/green]")
+    console.print(f"Progress: {prd.completed_count}/{prd.total_count}")
+
+
 @app.command()
 def diff() -> None:
     """Show summary of all changes since branch creation."""
