@@ -163,6 +163,7 @@ def start(
     agent: str = typer.Option("claude", "-a", "--agent", help="Agent to use: claude, codex, gemini"),
     push: bool = typer.Option(False, "--push", help="Auto-push to remote after each checkpoint"),
     skip_dirty_check: bool = typer.Option(False, "--force", help="Skip dirty working directory check"),
+    watchdog_timeout: int = typer.Option(600, "--watchdog-timeout", help="Seconds of silence before watchdog triggers (0 to disable, default 600 = 10 min)"),
 ) -> None:
     """Start a new Ralph run from a PRD file."""
     # Check for existing state
@@ -225,8 +226,12 @@ def start(
         agent=agent,
         auto_push=push,
         base_branch=base_branch,
+        watchdog_timeout=watchdog_timeout,
     )
     state.save()
+
+    if watchdog_timeout > 0:
+        console.print(f"[dim]Watchdog enabled: {watchdog_timeout}s timeout[/dim]")
     
     console.print()
     _show_prd_summary(prd)
@@ -246,83 +251,132 @@ def start(
 def _process_items(state: RalphState, prd: PRD, git: GitOps, agent: "Agent") -> None:  # type: ignore
     """Process PRD items sequentially."""
     from ralph.agents import Agent
-    
+
+    # Log file for agent output
+    log_file = RalphState.state_dir() / "current.log"
+
+    # Track if watchdog was triggered (shared across closures)
+    watchdog_warning_shown = [False]
+
+    def on_watchdog_timeout(silence_seconds: float) -> None:
+        """Handle watchdog timeout - warn the user."""
+        if not watchdog_warning_shown[0]:
+            watchdog_warning_shown[0] = True
+            minutes = int(silence_seconds / 60)
+            console.print(f"\n[bold yellow]⚠ WATCHDOG: Agent has been silent for {minutes}m[/bold yellow]")
+            console.print("[yellow]The agent may be hung. Consider:[/yellow]")
+            console.print("[yellow]  - Check 'ralph log -f' for details[/yellow]")
+            console.print("[yellow]  - Press Ctrl+C to interrupt and 'ralph resume' later[/yellow]")
+
     while True:
         item = prd.get_next_item()
         if not item:
+            state.clear_action()
             console.print("\n[bold green]✓ All items complete![/bold green]")
             console.print("Run [bold]ralph pr[/bold] to create a pull request.")
             return
-        
+
         state.current_item = item.id
-        state.save()
-        
+        state.reset_watchdog()
+
         # Show current item
         current_idx = len(state.completed_items) + 1
         total = prd.total_count
-        
+
         console.print()
         _show_item_panel(item, current_idx, total)
         console.print()
-        
+
         # Build prompt and run agent
         prompt = build_item_prompt(item, prd)
-        
+
         console.print(f"[bold blue]Running {agent.name}...[/bold blue]")
-        
+        if state.watchdog_timeout > 0:
+            console.print(f"[dim]Watchdog: {state.watchdog_timeout}s timeout[/dim]")
+
+        # Set action to generating code
+        state.set_action("Generating code...")
+
+        # Reset watchdog warning for new item
+        watchdog_warning_shown[0] = False
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             console=console,
         ) as progress:
             task = progress.add_task(f"Working on item {item.id}...", total=None)
-            
-            exit_code, output = run_agent(
+
+            def output_callback(line: str) -> None:
+                """Handle agent output - update progress and track for watchdog."""
+                progress.update(task, description=line[:60] + "..." if len(line) > 60 else line)
+                state.update_last_output()
+
+            exit_code, output, watchdog_result = run_agent(
                 agent,
                 prompt,
-                on_output=lambda line: progress.update(task, description=line[:60] + "..." if len(line) > 60 else line),
+                on_output=output_callback,
+                log_file=log_file,
+                watchdog_timeout=state.watchdog_timeout,
+                on_watchdog_timeout=on_watchdog_timeout,
             )
-        
+
+        # Report watchdog status if it was triggered
+        if watchdog_result and watchdog_result.triggered:
+            state.set_watchdog_triggered()
+            console.print(f"[yellow]⚠ Watchdog was triggered during this run (silence: {int(watchdog_result.silence_duration)}s)[/yellow]")
+
         if exit_code != 0:
+            state.set_action("Failed - waiting for fix")
             console.print(f"[red]✗ Agent failed with exit code {exit_code}[/red]")
             console.print("[yellow]You can fix the issue and run 'ralph resume' to continue.[/yellow]")
             return
-        
+
         # Stage changes
+        state.set_action("Staging changes...")
         files_changed = git.stage_all()
-        
+
         if not files_changed:
             console.print("[yellow]⚠ No changes made by agent[/yellow]")
             # Still mark as complete if verification passes
-        
+
         # Run tests
+        state.set_action("Running tests...")
         console.print("[bold]Running tests...[/bold]")
         tests_passed, test_output = _run_tests()
-        
+
         if not tests_passed:
+            state.set_action("Tests failed - waiting for fix")
             console.print("[red]✗ Tests failed![/red]")
             console.print(test_output)
             console.print("\n[yellow]Fix the tests and run 'ralph resume' to continue.[/yellow]")
             return
-        
+
         console.print("[green]✓ Tests passed[/green]")
-        
+
         # Run pre-commit hooks if defined
         if prd.hooks.pre_commit:
+            state.set_action("Running pre-commit hooks...")
             from ralph.hooks import run_pre_commit_hooks
             hooks_passed, _ = run_pre_commit_hooks(prd.hooks, console)
             if not hooks_passed:
+                state.set_action("Hooks failed - waiting for fix")
                 console.print("\n[yellow]Fix the hook failures and run 'ralph resume' to continue.[/yellow]")
                 return
-        
+
         # Create checkpoint
+        state.set_action("Creating checkpoint...")
         sha = _create_checkpoint(state, prd, item.id, git, files_changed, tests_passed)
         console.print(f"[green]✓ Checkpoint: {sha[:8]}[/green]")
-        
+
         # Run post-item hooks if defined
         if prd.hooks.post_item:
+            state.set_action("Running post-item hooks...")
             from ralph.hooks import run_post_item_hooks
             run_post_item_hooks(prd.hooks, console)
+
+        # Clear action after item is complete
+        state.clear_action()
 
 
 @app.command()
@@ -332,27 +386,51 @@ def status() -> None:
         console.print("[yellow]No active Ralph run.[/yellow]")
         console.print("Start one with: [bold]ralph start <prd.json>[/bold]")
         raise typer.Exit(0)
-    
+
     state = RalphState.load()
     prd = PRD.load(state.prd_path)
-    
+
     # Status table
     table = Table(title="[bold blue]Ralph Status[/bold blue]", show_header=False)
     table.add_column("Key", style="bold cyan")
     table.add_column("Value")
-    
+
     table.add_row("Branch", state.branch)
     table.add_row("PRD", Path(state.prd_path).name)
     table.add_row("Agent", state.agent)
     table.add_row("Progress", f"[bold]{prd.completed_count}/{prd.total_count}[/bold] items")
     table.add_row("Elapsed", state.elapsed_time)
+
+    # Calculate and display ETA if available
+    eta = state.calculate_eta(prd.total_count)
+    if eta:
+        table.add_row("ETA", f"[bold cyan]{eta}[/bold cyan]")
+
     table.add_row("Started", state.started_at[:19].replace("T", " "))
-    
+
+    # Show current action if set
+    if state.current_action:
+        action_display = f"[bold yellow]{state.current_action}[/bold yellow]"
+        if state.action_elapsed_time:
+            action_display += f" [dim]({state.action_elapsed_time})[/dim]"
+        table.add_row("Action", action_display)
+
+    # Show watchdog status
+    if state.watchdog_timeout > 0:
+        watchdog_display = f"{state.watchdog_timeout}s"
+        if state.watchdog_triggered:
+            watchdog_display += " [bold red](TRIGGERED)[/bold red]"
+        elif state.last_output_at:
+            silence = state.get_silence_duration()
+            if silence > 60:
+                watchdog_display += f" [dim](silent {int(silence)}s)[/dim]"
+        table.add_row("Watchdog", watchdog_display)
+
     if state.pr_url:
         table.add_row("PR", state.pr_url)
-    
+
     console.print(table)
-    
+
     # Check for uncommitted changes
     try:
         git = GitOps()
@@ -360,7 +438,7 @@ def status() -> None:
             console.print("\n[yellow]⚠ Uncommitted changes detected[/yellow]")
     except GitError:
         pass
-    
+
     # Show next item
     next_item = prd.get_next_item()
     if next_item:
@@ -368,6 +446,41 @@ def status() -> None:
         console.print(f"[dim]{next_item.description}[/dim]")
     else:
         console.print("\n[green]✓ All items complete! Run 'ralph pr' to create PR.[/green]")
+
+
+@app.command()
+def log(
+    lines: int = typer.Option(20, "-n", "--lines", help="Number of lines to show"),
+    follow: bool = typer.Option(False, "-f", "--follow", help="Follow log output (like tail -f)"),
+) -> None:
+    """Show the current agent log output."""
+    if not RalphState.exists():
+        console.print("[red]✗ No Ralph run found.[/red]")
+        raise typer.Exit(1)
+
+    log_file = RalphState.state_dir() / "current.log"
+    if not log_file.exists():
+        console.print("[yellow]No log file found.[/yellow]")
+        console.print("Logs are created when an agent is running.")
+        raise typer.Exit(1)
+
+    if follow:
+        # Use tail -f for live following
+        console.print(f"[dim]Following {log_file}... (Ctrl+C to stop)[/dim]\n")
+        try:
+            subprocess.run(["tail", "-f", str(log_file)])
+        except KeyboardInterrupt:
+            pass
+    else:
+        # Show last N lines
+        content = log_file.read_text()
+        content_lines = content.splitlines()
+
+        if len(content_lines) > lines:
+            content_lines = content_lines[-lines:]
+
+        for line in content_lines:
+            console.print(line)
 
 
 @app.command()
@@ -468,6 +581,65 @@ def rollback(
         state.remove_checkpoint(cp.item_id)
     
     console.print(f"[green]✓ Rolled back {count} item(s)[/green]")
+    console.print(f"Progress: {prd.completed_count}/{prd.total_count}")
+
+
+@app.command("reset-item")
+def reset_item(
+    item_id: int = typer.Argument(..., help="Item ID to reset"),
+    hard: bool = typer.Option(False, "--hard", help="Use git reset instead of revert (destructive)"),
+    current: bool = typer.Option(False, "--current", help="Set item as current after reset"),
+) -> None:
+    """Reset a specific item's state and revert its changes."""
+    if not RalphState.exists():
+        console.print("[red]✗ No Ralph run found.[/red]")
+        raise typer.Exit(1)
+
+    state = RalphState.load()
+    prd = PRD.load(state.prd_path)
+
+    # Verify item exists
+    item = prd.get_item(item_id)
+    if not item:
+        console.print(f"[red]✗ Item {item_id} not found in PRD.[/red]")
+        raise typer.Exit(1)
+
+    # Get checkpoint for this item
+    checkpoint = state.get_checkpoint(item_id)
+    if not checkpoint:
+        console.print(f"[yellow]⚠ Item {item_id} has no checkpoint to reset.[/yellow]")
+        raise typer.Exit(1)
+
+    # Perform git operations
+    try:
+        git = GitOps()
+
+        if hard:
+            # Hard reset to parent commit (before this item's work)
+            parent = f"{checkpoint.commit_sha}^"
+            git.reset_hard(parent)
+            console.print(f"[yellow]Hard reset to before item {item_id}[/yellow]")
+        else:
+            # Safe revert
+            git.revert_commit(checkpoint.commit_sha)
+            console.print(f"[yellow]Reverted commit for item {item_id}[/yellow]")
+    except GitError as e:
+        console.print(f"[red]✗ Git error: {e}[/red]")
+        raise typer.Exit(1)
+
+    # Update PRD - mark item as not passing
+    item.passes = False
+    prd.save()
+
+    # Remove checkpoint from state
+    state.remove_checkpoint(item_id)
+
+    # Optionally set as current item
+    if current:
+        state.current_item = item_id
+        state.save()
+
+    console.print(f"[green]✓ Reset item {item_id}: {item.title}[/green]")
     console.print(f"Progress: {prd.completed_count}/{prd.total_count}")
 
 

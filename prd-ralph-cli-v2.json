@@ -1,0 +1,79 @@
+{
+  "project": "Ralph CLI v0.2",
+  "goal": "Add robustness and observability features to Ralph CLI based on dogfooding feedback.",
+  "tech_stack": {
+    "language": "Python 3.11+",
+    "framework": "Typer (CLI) + Rich (output)",
+    "testing": "pytest"
+  },
+  "context": {
+    "target_user": "Developers running long autonomous loops",
+    "constraints": "Must be backward compatible with existing state files"
+  },
+  "items": [
+    {
+      "id": 1,
+      "category": "core",
+      "title": "Reset Item Command",
+      "description": "Command to reset a specific item's state and revert its changes, allowing clean retry.",
+      "priority": 1,
+      "passes": true,
+      "verification": "ralph reset-item 5 reverts files from item 5 commit and resets state to make it pending.",
+      "steps": [
+        "Implement `ralph reset-item <id>` command",
+        "Load state, verify item is in progress or completed",
+        "Find commit associated with item (if any)",
+        "Revert commit (git revert or reset depending on safety)",
+        "Update state.json: remove from completed, set as current if desired"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 2,
+      "category": "observability",
+      "title": "Granular Status & Live Tail",
+      "description": "Show current sub-step action in status and allow log tailing.",
+      "priority": 1,
+      "passes": true,
+      "verification": "ralph status shows 'Generating code...' vs 'Running tests...'. ralph log tails output.",
+      "steps": [
+        "Update Agent interface to report granular status (thinking, acting, verifying)",
+        "Update state.json with `current_action` field",
+        "Update `ralph status` to read/display `current_action`",
+        "Implement `ralph log` command to tail the active agent log file"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 3,
+      "category": "observability",
+      "title": "ETA Prediction",
+      "description": "Calculate and display estimated completion time based on item velocity.",
+      "priority": 2,
+      "passes": true,
+      "verification": "ralph status shows 'ETA: ~45m' based on avg time per item.",
+      "steps": [
+        "Calculate average time per completed item from checkpoints",
+        "Multiply avg by remaining items",
+        "Display predicted finish time in `ralph status`"
+      ],
+      "notes": ""
+    },
+    {
+      "id": 4,
+      "category": "robustness",
+      "title": "Hung Prompt Watchdog",
+      "description": "Detect if agent has been silent for too long and escalate.",
+      "priority": 2,
+      "passes": true,
+      "verification": "If agent output halts for X mins, watchdog warns user or auto-retries.",
+      "steps": [
+        "Implement background watchdog thread during agent execution",
+        "Configurable timeout (default 10m)",
+        "On timeout: check process state, maybe send alert/notification",
+        "Add `--watchdog-timeout` flag to `ralph start`"
+      ],
+      "notes": ""
+    }
+  ]
+}

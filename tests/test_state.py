@@ -151,12 +151,358 @@ class TestRalphState:
     def test_gitignore_updated(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that .ralph/ is added to .gitignore."""
         monkeypatch.chdir(tmp_path)
-        
+
         # Start with empty gitignore
         (tmp_path / ".gitignore").write_text("node_modules/\n")
-        
+
         state = RalphState(branch="test", prd_path="/test.json", current_item=None)
         state.save()
-        
+
         gitignore = (tmp_path / ".gitignore").read_text()
         assert ".ralph/" in gitignore
+
+    def test_current_action_default(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test current_action defaults to empty string."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        state = RalphState(branch="test", prd_path="/test.json", current_item=None)
+        assert state.current_action == ""
+        assert state.action_started_at == ""
+
+    def test_set_action(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test setting current action."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        state = RalphState(branch="test", prd_path="/test.json", current_item=1)
+        state.save()
+
+        state.set_action("Generating code")
+
+        assert state.current_action == "Generating code"
+        assert state.action_started_at != ""
+
+        # Verify persisted
+        loaded = RalphState.load()
+        assert loaded.current_action == "Generating code"
+        assert loaded.action_started_at != ""
+
+    def test_clear_action(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test clearing current action."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        state = RalphState(branch="test", prd_path="/test.json", current_item=1)
+        state.save()
+
+        state.set_action("Running tests")
+        state.clear_action()
+
+        assert state.current_action == ""
+        assert state.action_started_at == ""
+
+        # Verify persisted
+        loaded = RalphState.load()
+        assert loaded.current_action == ""
+
+    def test_action_elapsed_time(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test action elapsed time calculation."""
+        from datetime import datetime, timedelta
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=1,
+            action_started_at=(datetime.now() - timedelta(seconds=45)).isoformat(),
+            current_action="Running tests",
+        )
+
+        elapsed = state.action_elapsed_time
+        assert "s" in elapsed
+        # Should be around 45s
+        assert "45" in elapsed or "44" in elapsed or "46" in elapsed
+
+    def test_action_elapsed_time_empty(self) -> None:
+        """Test action elapsed time when no action is set."""
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+        )
+
+        assert state.action_elapsed_time == ""
+
+    def test_calculate_eta_no_checkpoints(self) -> None:
+        """Test ETA returns None when no checkpoints exist."""
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+        )
+
+        assert state.calculate_eta(total_items=5) is None
+
+    def test_calculate_eta_all_complete(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test ETA returns None when all items are complete."""
+        from datetime import datetime, timedelta
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            started_at=(datetime.now() - timedelta(hours=1)).isoformat(),
+        )
+        state.save()
+
+        # Add checkpoints for all 3 items
+        for i in range(1, 4):
+            cp = Checkpoint(item_id=i, commit_sha=f"sha{i}", timestamp=datetime.now().isoformat())
+            state.add_checkpoint(cp)
+
+        # Total items = 3, completed = 3, so ETA should be None
+        assert state.calculate_eta(total_items=3) is None
+
+    def test_calculate_eta_with_remaining_items(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test ETA calculation with remaining items."""
+        from datetime import datetime, timedelta
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        # Started 30 minutes ago
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            started_at=(datetime.now() - timedelta(minutes=30)).isoformat(),
+        )
+        state.save()
+
+        # Completed 2 items in 30 minutes = 15 min per item avg
+        cp1 = Checkpoint(item_id=1, commit_sha="sha1", timestamp=datetime.now().isoformat())
+        cp2 = Checkpoint(item_id=2, commit_sha="sha2", timestamp=datetime.now().isoformat())
+        state.add_checkpoint(cp1)
+        state.add_checkpoint(cp2)
+
+        # 4 total items, 2 remaining = 2 * 15min = ~30 min ETA
+        eta = state.calculate_eta(total_items=4)
+        assert eta is not None
+        assert "~" in eta
+        # Should be around 30 minutes
+        assert "30m" in eta or "29m" in eta or "31m" in eta
+
+    def test_calculate_eta_hours(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test ETA calculation returns hours format when appropriate."""
+        from datetime import datetime, timedelta
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        # Started 2 hours ago
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            started_at=(datetime.now() - timedelta(hours=2)).isoformat(),
+        )
+        state.save()
+
+        # Completed 1 item in 2 hours
+        cp = Checkpoint(item_id=1, commit_sha="sha1", timestamp=datetime.now().isoformat())
+        state.add_checkpoint(cp)
+
+        # 3 total items, 2 remaining = 2 * 2h = ~4h ETA
+        eta = state.calculate_eta(total_items=3)
+        assert eta is not None
+        assert "h" in eta
+
+    def test_calculate_eta_less_than_minute(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test ETA shows <1m for very short estimates."""
+        from datetime import datetime, timedelta
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        # Started 10 seconds ago
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            started_at=(datetime.now() - timedelta(seconds=10)).isoformat(),
+        )
+        state.save()
+
+        # Completed 1 item in 10 seconds
+        cp = Checkpoint(item_id=1, commit_sha="sha1", timestamp=datetime.now().isoformat())
+        state.add_checkpoint(cp)
+
+        # 2 total items, 1 remaining = ~10s ETA
+        eta = state.calculate_eta(total_items=2)
+        assert eta is not None
+        assert "<1m" in eta
+
+
+class TestWatchdogState:
+    """Test watchdog-related state management."""
+
+    def test_watchdog_timeout_default(self) -> None:
+        """Test watchdog timeout has correct default."""
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+        )
+        assert state.watchdog_timeout == 600  # 10 minutes default
+
+    def test_watchdog_timeout_custom(self) -> None:
+        """Test custom watchdog timeout."""
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            watchdog_timeout=300,
+        )
+        assert state.watchdog_timeout == 300
+
+    def test_watchdog_state_persistence(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test watchdog state fields are persisted."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            watchdog_timeout=120,
+            watchdog_triggered=True,
+            last_output_at="2024-01-01T12:00:00",
+        )
+        state.save()
+
+        loaded = RalphState.load()
+        assert loaded.watchdog_timeout == 120
+        assert loaded.watchdog_triggered is True
+        assert loaded.last_output_at == "2024-01-01T12:00:00"
+
+    def test_update_last_output(self) -> None:
+        """Test updating last output timestamp."""
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+        )
+        assert state.last_output_at == ""
+
+        state.update_last_output()
+        assert state.last_output_at != ""
+
+    def test_get_silence_duration(self) -> None:
+        """Test calculating silence duration."""
+        from datetime import datetime, timedelta
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            last_output_at=(datetime.now() - timedelta(seconds=30)).isoformat(),
+        )
+
+        duration = state.get_silence_duration()
+        assert 29 <= duration <= 31  # Allow for timing variance
+
+    def test_get_silence_duration_no_output(self) -> None:
+        """Test silence duration returns 0 when no last output."""
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+        )
+
+        assert state.get_silence_duration() == 0.0
+
+    def test_is_watchdog_triggered(self) -> None:
+        """Test watchdog trigger check."""
+        from datetime import datetime, timedelta
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            watchdog_timeout=10,
+            last_output_at=(datetime.now() - timedelta(seconds=15)).isoformat(),
+        )
+
+        assert state.is_watchdog_triggered() is True
+
+    def test_is_watchdog_triggered_not_exceeded(self) -> None:
+        """Test watchdog not triggered when within timeout."""
+        from datetime import datetime, timedelta
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            watchdog_timeout=60,
+            last_output_at=(datetime.now() - timedelta(seconds=5)).isoformat(),
+        )
+
+        assert state.is_watchdog_triggered() is False
+
+    def test_is_watchdog_triggered_disabled(self) -> None:
+        """Test watchdog never triggers when timeout is 0."""
+        from datetime import datetime, timedelta
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            watchdog_timeout=0,
+            last_output_at=(datetime.now() - timedelta(hours=1)).isoformat(),
+        )
+
+        assert state.is_watchdog_triggered() is False
+
+    def test_set_watchdog_triggered(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test setting watchdog triggered state."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+        )
+        state.save()
+
+        assert state.watchdog_triggered is False
+        state.set_watchdog_triggered()
+        assert state.watchdog_triggered is True
+
+        # Verify persisted
+        loaded = RalphState.load()
+        assert loaded.watchdog_triggered is True
+
+    def test_reset_watchdog(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test resetting watchdog state."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            watchdog_triggered=True,
+            last_output_at="",
+        )
+        state.save()
+
+        state.reset_watchdog()
+
+        assert state.watchdog_triggered is False
+        assert state.last_output_at != ""  # Should be set to current time
+
+        # Verify persisted
+        loaded = RalphState.load()
+        assert loaded.watchdog_triggered is False
