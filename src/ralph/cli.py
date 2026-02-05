@@ -93,8 +93,8 @@ def _show_item_panel(item: "PRDItem", current: int, total: int) -> None:  # type
 def _detect_test_runner() -> list[str] | None:
     """Detect test runner based on project files.
     
-    Returns None if no test infrastructure is detected,
-    allowing Ralph to skip the test phase for early-stage projects.
+    Returns None if no test infrastructure is detected.
+    This is treated as a FAILURE - PRDs must include test setup.
     """
     # Check for Node.js project with test script
     if Path("package.json").exists():
@@ -115,15 +115,24 @@ def _detect_test_runner() -> list[str] | None:
     if Path("tests").is_dir() or Path("test").is_dir():
         return ["pytest", "-v", "--tb=short"]
     
-    # No test infrastructure detected - skip tests
+    # No test infrastructure detected - this is a failure condition
+    # PRDs must include test setup as an early item
     return None
 
 
 def _run_tests() -> tuple[bool, str]:
-    """Run tests using auto-detected test runner."""
+    """Run tests using auto-detected test runner.
+    
+    Returns (False, message) if no test infrastructure exists.
+    PRDs must include test setup - no skipping allowed.
+    """
     test_cmd = _detect_test_runner()
     if not test_cmd:
-        return True, "No test runner detected, skipping tests"
+        return False, (
+            "No test infrastructure detected!\n"
+            "PRDs must include test setup as an early item.\n"
+            "Required: package.json with 'test' script, or pyproject.toml/pytest.ini with tests/ dir"
+        )
     
     try:
         result = subprocess.run(
@@ -134,7 +143,7 @@ def _run_tests() -> tuple[bool, str]:
         )
         return result.returncode == 0, result.stdout + result.stderr
     except FileNotFoundError:
-        return True, f"Test runner not found ({test_cmd[0]}), skipping tests"
+        return False, f"Test runner '{test_cmd[0]}' not found. Install it or fix package.json test script."
     except subprocess.TimeoutExpired:
         return False, "Tests timed out after 5 minutes"
 
