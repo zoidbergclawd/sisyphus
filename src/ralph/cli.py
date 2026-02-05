@@ -90,18 +90,43 @@ def _show_item_panel(item: "PRDItem", current: int, total: int) -> None:  # type
     console.print(Panel(table, title="[bold green]Current Item[/bold green]", expand=False))
 
 
+def _detect_test_runner() -> list[str] | None:
+    """Detect test runner based on project files."""
+    # Check for Node.js project with test script
+    if Path("package.json").exists():
+        try:
+            import json
+            with open("package.json") as f:
+                pkg = json.load(f)
+            if pkg.get("scripts", {}).get("test"):
+                return ["npm", "test"]
+        except (json.JSONDecodeError, KeyError):
+            pass
+    
+    # Check for Python project
+    if Path("pyproject.toml").exists() or Path("setup.py").exists() or Path("pytest.ini").exists():
+        return ["pytest", "-v", "--tb=short"]
+    
+    # Default to pytest if nothing detected
+    return ["pytest", "-v", "--tb=short"]
+
+
 def _run_tests() -> tuple[bool, str]:
-    """Run pytest and return (success, output)."""
+    """Run tests using auto-detected test runner."""
+    test_cmd = _detect_test_runner()
+    if not test_cmd:
+        return True, "No test runner detected, skipping tests"
+    
     try:
         result = subprocess.run(
-            ["pytest", "-v", "--tb=short"],
+            test_cmd,
             capture_output=True,
             text=True,
             timeout=300,
         )
         return result.returncode == 0, result.stdout + result.stderr
     except FileNotFoundError:
-        return True, "pytest not found, skipping tests"
+        return True, f"Test runner not found ({test_cmd[0]}), skipping tests"
     except subprocess.TimeoutExpired:
         return False, "Tests timed out after 5 minutes"
 
