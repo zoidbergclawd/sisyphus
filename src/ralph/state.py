@@ -56,6 +56,9 @@ class RalphState:
     base_branch: str = "main"
     current_action: str = ""
     action_started_at: str = ""
+    watchdog_timeout: int = 600  # Default 10 minutes in seconds
+    last_output_at: str = ""
+    watchdog_triggered: bool = False
 
     RALPH_DIR = ".ralph"
     STATE_FILE = "state.json"
@@ -103,6 +106,9 @@ class RalphState:
             base_branch=data.get("base_branch", "main"),
             current_action=data.get("current_action", ""),
             action_started_at=data.get("action_started_at", ""),
+            watchdog_timeout=data.get("watchdog_timeout", 600),
+            last_output_at=data.get("last_output_at", ""),
+            watchdog_triggered=data.get("watchdog_triggered", False),
         )
 
     def save(self) -> None:
@@ -133,6 +139,9 @@ class RalphState:
             "base_branch": self.base_branch,
             "current_action": self.current_action,
             "action_started_at": self.action_started_at,
+            "watchdog_timeout": self.watchdog_timeout,
+            "last_output_at": self.last_output_at,
+            "watchdog_triggered": self.watchdog_triggered,
         }
         
         with open(self.state_file(), "w") as f:
@@ -254,6 +263,35 @@ class RalphState:
         """Clear the current action."""
         self.current_action = ""
         self.action_started_at = ""
+        self.save()
+
+    def update_last_output(self) -> None:
+        """Update the last output timestamp."""
+        self.last_output_at = datetime.now().isoformat()
+        # Don't save here to avoid excessive disk I/O during agent output
+
+    def get_silence_duration(self) -> float:
+        """Get the duration in seconds since last output."""
+        if not self.last_output_at:
+            return 0.0
+        last = datetime.fromisoformat(self.last_output_at)
+        return (datetime.now() - last).total_seconds()
+
+    def is_watchdog_triggered(self) -> bool:
+        """Check if watchdog timeout has been exceeded."""
+        if self.watchdog_timeout <= 0:
+            return False
+        return self.get_silence_duration() > self.watchdog_timeout
+
+    def set_watchdog_triggered(self) -> None:
+        """Mark that watchdog was triggered."""
+        self.watchdog_triggered = True
+        self.save()
+
+    def reset_watchdog(self) -> None:
+        """Reset watchdog state for a new agent run."""
+        self.watchdog_triggered = False
+        self.last_output_at = datetime.now().isoformat()
         self.save()
 
     @classmethod

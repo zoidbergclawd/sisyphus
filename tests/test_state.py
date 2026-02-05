@@ -342,3 +342,167 @@ class TestRalphState:
         eta = state.calculate_eta(total_items=2)
         assert eta is not None
         assert "<1m" in eta
+
+
+class TestWatchdogState:
+    """Test watchdog-related state management."""
+
+    def test_watchdog_timeout_default(self) -> None:
+        """Test watchdog timeout has correct default."""
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+        )
+        assert state.watchdog_timeout == 600  # 10 minutes default
+
+    def test_watchdog_timeout_custom(self) -> None:
+        """Test custom watchdog timeout."""
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            watchdog_timeout=300,
+        )
+        assert state.watchdog_timeout == 300
+
+    def test_watchdog_state_persistence(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test watchdog state fields are persisted."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            watchdog_timeout=120,
+            watchdog_triggered=True,
+            last_output_at="2024-01-01T12:00:00",
+        )
+        state.save()
+
+        loaded = RalphState.load()
+        assert loaded.watchdog_timeout == 120
+        assert loaded.watchdog_triggered is True
+        assert loaded.last_output_at == "2024-01-01T12:00:00"
+
+    def test_update_last_output(self) -> None:
+        """Test updating last output timestamp."""
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+        )
+        assert state.last_output_at == ""
+
+        state.update_last_output()
+        assert state.last_output_at != ""
+
+    def test_get_silence_duration(self) -> None:
+        """Test calculating silence duration."""
+        from datetime import datetime, timedelta
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            last_output_at=(datetime.now() - timedelta(seconds=30)).isoformat(),
+        )
+
+        duration = state.get_silence_duration()
+        assert 29 <= duration <= 31  # Allow for timing variance
+
+    def test_get_silence_duration_no_output(self) -> None:
+        """Test silence duration returns 0 when no last output."""
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+        )
+
+        assert state.get_silence_duration() == 0.0
+
+    def test_is_watchdog_triggered(self) -> None:
+        """Test watchdog trigger check."""
+        from datetime import datetime, timedelta
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            watchdog_timeout=10,
+            last_output_at=(datetime.now() - timedelta(seconds=15)).isoformat(),
+        )
+
+        assert state.is_watchdog_triggered() is True
+
+    def test_is_watchdog_triggered_not_exceeded(self) -> None:
+        """Test watchdog not triggered when within timeout."""
+        from datetime import datetime, timedelta
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            watchdog_timeout=60,
+            last_output_at=(datetime.now() - timedelta(seconds=5)).isoformat(),
+        )
+
+        assert state.is_watchdog_triggered() is False
+
+    def test_is_watchdog_triggered_disabled(self) -> None:
+        """Test watchdog never triggers when timeout is 0."""
+        from datetime import datetime, timedelta
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            watchdog_timeout=0,
+            last_output_at=(datetime.now() - timedelta(hours=1)).isoformat(),
+        )
+
+        assert state.is_watchdog_triggered() is False
+
+    def test_set_watchdog_triggered(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test setting watchdog triggered state."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+        )
+        state.save()
+
+        assert state.watchdog_triggered is False
+        state.set_watchdog_triggered()
+        assert state.watchdog_triggered is True
+
+        # Verify persisted
+        loaded = RalphState.load()
+        assert loaded.watchdog_triggered is True
+
+    def test_reset_watchdog(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test resetting watchdog state."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+            watchdog_triggered=True,
+            last_output_at="",
+        )
+        state.save()
+
+        state.reset_watchdog()
+
+        assert state.watchdog_triggered is False
+        assert state.last_output_at != ""  # Should be set to current time
+
+        # Verify persisted
+        loaded = RalphState.load()
+        assert loaded.watchdog_triggered is False

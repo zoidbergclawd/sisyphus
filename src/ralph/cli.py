@@ -163,6 +163,7 @@ def start(
     agent: str = typer.Option("claude", "-a", "--agent", help="Agent to use: claude, codex, gemini"),
     push: bool = typer.Option(False, "--push", help="Auto-push to remote after each checkpoint"),
     skip_dirty_check: bool = typer.Option(False, "--force", help="Skip dirty working directory check"),
+    watchdog_timeout: int = typer.Option(600, "--watchdog-timeout", help="Seconds of silence before watchdog triggers (0 to disable, default 600 = 10 min)"),
 ) -> None:
     """Start a new Ralph run from a PRD file."""
     # Check for existing state
@@ -225,8 +226,12 @@ def start(
         agent=agent,
         auto_push=push,
         base_branch=base_branch,
+        watchdog_timeout=watchdog_timeout,
     )
     state.save()
+
+    if watchdog_timeout > 0:
+        console.print(f"[dim]Watchdog enabled: {watchdog_timeout}s timeout[/dim]")
     
     console.print()
     _show_prd_summary(prd)
@@ -250,6 +255,19 @@ def _process_items(state: RalphState, prd: PRD, git: GitOps, agent: "Agent") -> 
     # Log file for agent output
     log_file = RalphState.state_dir() / "current.log"
 
+    # Track if watchdog was triggered (shared across closures)
+    watchdog_warning_shown = [False]
+
+    def on_watchdog_timeout(silence_seconds: float) -> None:
+        """Handle watchdog timeout - warn the user."""
+        if not watchdog_warning_shown[0]:
+            watchdog_warning_shown[0] = True
+            minutes = int(silence_seconds / 60)
+            console.print(f"\n[bold yellow]⚠ WATCHDOG: Agent has been silent for {minutes}m[/bold yellow]")
+            console.print("[yellow]The agent may be hung. Consider:[/yellow]")
+            console.print("[yellow]  - Check 'ralph log -f' for details[/yellow]")
+            console.print("[yellow]  - Press Ctrl+C to interrupt and 'ralph resume' later[/yellow]")
+
     while True:
         item = prd.get_next_item()
         if not item:
@@ -259,7 +277,7 @@ def _process_items(state: RalphState, prd: PRD, git: GitOps, agent: "Agent") -> 
             return
 
         state.current_item = item.id
-        state.save()
+        state.reset_watchdog()
 
         # Show current item
         current_idx = len(state.completed_items) + 1
@@ -273,9 +291,14 @@ def _process_items(state: RalphState, prd: PRD, git: GitOps, agent: "Agent") -> 
         prompt = build_item_prompt(item, prd)
 
         console.print(f"[bold blue]Running {agent.name}...[/bold blue]")
+        if state.watchdog_timeout > 0:
+            console.print(f"[dim]Watchdog: {state.watchdog_timeout}s timeout[/dim]")
 
         # Set action to generating code
         state.set_action("Generating code...")
+
+        # Reset watchdog warning for new item
+        watchdog_warning_shown[0] = False
 
         with Progress(
             SpinnerColumn(),
@@ -284,12 +307,24 @@ def _process_items(state: RalphState, prd: PRD, git: GitOps, agent: "Agent") -> 
         ) as progress:
             task = progress.add_task(f"Working on item {item.id}...", total=None)
 
-            exit_code, output = run_agent(
+            def output_callback(line: str) -> None:
+                """Handle agent output - update progress and track for watchdog."""
+                progress.update(task, description=line[:60] + "..." if len(line) > 60 else line)
+                state.update_last_output()
+
+            exit_code, output, watchdog_result = run_agent(
                 agent,
                 prompt,
-                on_output=lambda line: progress.update(task, description=line[:60] + "..." if len(line) > 60 else line),
+                on_output=output_callback,
                 log_file=log_file,
+                watchdog_timeout=state.watchdog_timeout,
+                on_watchdog_timeout=on_watchdog_timeout,
             )
+
+        # Report watchdog status if it was triggered
+        if watchdog_result and watchdog_result.triggered:
+            state.set_watchdog_triggered()
+            console.print(f"[yellow]⚠ Watchdog was triggered during this run (silence: {int(watchdog_result.silence_duration)}s)[/yellow]")
 
         if exit_code != 0:
             state.set_action("Failed - waiting for fix")
@@ -379,6 +414,17 @@ def status() -> None:
         if state.action_elapsed_time:
             action_display += f" [dim]({state.action_elapsed_time})[/dim]"
         table.add_row("Action", action_display)
+
+    # Show watchdog status
+    if state.watchdog_timeout > 0:
+        watchdog_display = f"{state.watchdog_timeout}s"
+        if state.watchdog_triggered:
+            watchdog_display += " [bold red](TRIGGERED)[/bold red]"
+        elif state.last_output_at:
+            silence = state.get_silence_duration()
+            if silence > 60:
+                watchdog_display += f" [dim](silent {int(silence)}s)[/dim]"
+        table.add_row("Watchdog", watchdog_display)
 
     if state.pr_url:
         table.add_row("PR", state.pr_url)

@@ -50,7 +50,7 @@
       "title": "ETA Prediction",
       "description": "Calculate and display estimated completion time based on item velocity.",
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "verification": "ralph status shows 'ETA: ~45m' based on avg time per item.",
       "steps": [
         "Calculate average time per completed item from checkpoints",
@@ -65,7 +65,7 @@
       "title": "Hung Prompt Watchdog",
       "description": "Detect if agent has been silent for too long and escalate.",
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "verification": "If agent output halts for X mins, watchdog warns user or auto-retries.",
       "steps": [
         "Implement background watchdog thread during agent execution",
