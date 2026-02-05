@@ -20,7 +20,7 @@
       "title": "Project scaffolding",
       "description": "Initialize ralph CLI package with Typer, Rich, and basic command structure",
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "verification": "pip install -e . && ralph --help shows all commands",
       "steps": [
         "Create pyproject.toml with typer, rich, gitpython dependencies",

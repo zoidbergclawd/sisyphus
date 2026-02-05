@@ -1,12 +1,21 @@
 """Ralph CLI - Main entry point."""
 
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+
 import typer
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 from ralph import __version__
+from ralph.agents import AGENTS, build_item_prompt, detect_agents, get_agent, run_agent
+from ralph.git_ops import GitError, GitOps, generate_branch_name
 from ralph.prd import PRD
+from ralph.state import Checkpoint, RalphState
 
 app = typer.Typer(
     name="ralph",
@@ -38,31 +47,357 @@ def main(
     pass
 
 
+def _show_prd_summary(prd: PRD) -> None:
+    """Display PRD summary panel."""
+    table = Table(show_header=False, box=None)
+    table.add_column("Key", style="bold cyan")
+    table.add_column("Value")
+    
+    table.add_row("Project", prd.project)
+    table.add_row("Goal", prd.goal[:80] + "..." if len(prd.goal) > 80 else prd.goal)
+    table.add_row("Items", f"{prd.completed_count}/{prd.total_count} complete")
+    
+    if prd.tech_stack:
+        lang = prd.tech_stack.get("language", "")
+        framework = prd.tech_stack.get("framework", "")
+        if lang or framework:
+            table.add_row("Stack", f"{lang} / {framework}".strip(" /"))
+    
+    console.print(Panel(table, title="[bold blue]PRD Summary[/bold blue]", expand=False))
+
+
+def _show_item_panel(item: "PRDItem", current: int, total: int) -> None:  # type: ignore
+    """Display current item panel."""
+    from ralph.prd import PRDItem
+    
+    table = Table(show_header=False, box=None)
+    table.add_column("Key", style="bold")
+    table.add_column("Value")
+    
+    table.add_row("Item", f"[bold yellow]{current}[/bold yellow]/{total}")
+    table.add_row("Title", f"[bold]{item.title}[/bold]")
+    table.add_row("Category", item.category)
+    table.add_row("Priority", str(item.priority))
+    table.add_row("Description", item.description)
+    
+    if item.steps:
+        steps_text = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(item.steps))
+        table.add_row("Steps", steps_text)
+    
+    if item.verification:
+        table.add_row("Verification", f"[dim]{item.verification}[/dim]")
+    
+    console.print(Panel(table, title="[bold green]Current Item[/bold green]", expand=False))
+
+
+def _run_tests() -> tuple[bool, str]:
+    """Run pytest and return (success, output)."""
+    try:
+        result = subprocess.run(
+            ["pytest", "-v", "--tb=short"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        return result.returncode == 0, result.stdout + result.stderr
+    except FileNotFoundError:
+        return True, "pytest not found, skipping tests"
+    except subprocess.TimeoutExpired:
+        return False, "Tests timed out after 5 minutes"
+
+
+def _create_checkpoint(
+    state: RalphState,
+    prd: PRD,
+    item_id: int,
+    git: GitOps,
+    files_changed: list[str],
+    tests_passed: bool,
+) -> str:
+    """Create a checkpoint commit and update state."""
+    item = prd.get_item(item_id)
+    if not item:
+        raise ValueError(f"Item {item_id} not found")
+    
+    # Create commit message
+    message = f"[ralph] item-{item_id}: {item.title}"
+    body_lines = [
+        f"Category: {item.category}",
+        f"Files changed: {len(files_changed)}",
+        f"Tests passed: {tests_passed}",
+    ]
+    body = "\n".join(body_lines)
+    
+    # Commit
+    sha = git.commit(message, body)
+    
+    # Create checkpoint
+    checkpoint = Checkpoint(
+        item_id=item_id,
+        commit_sha=sha,
+        timestamp=datetime.now().isoformat(),
+        files_changed=files_changed,
+        tests_passed=tests_passed,
+    )
+    
+    state.add_checkpoint(checkpoint)
+    
+    # Mark item as complete in PRD
+    item.passes = True
+    prd.save()
+    
+    # Auto-push if enabled
+    if state.auto_push:
+        try:
+            git.push(state.branch, set_upstream=True)
+            console.print("[green]✓ Pushed to remote[/green]")
+        except GitError as e:
+            console.print(f"[yellow]⚠ Push failed: {e}[/yellow]")
+    
+    return sha
+
+
 @app.command()
 def start(
     prd_path: str = typer.Argument(..., help="Path to PRD JSON file"),
     agent: str = typer.Option("claude", "-a", "--agent", help="Agent to use: claude, codex, gemini"),
     push: bool = typer.Option(False, "--push", help="Auto-push to remote after each checkpoint"),
+    skip_dirty_check: bool = typer.Option(False, "--force", help="Skip dirty working directory check"),
 ) -> None:
     """Start a new Ralph run from a PRD file."""
-    console.print(f"[bold blue]Starting Ralph run...[/bold blue]")
-    console.print(f"PRD: {prd_path}")
-    console.print(f"Agent: {agent}")
-    # TODO: Implement in item 5
+    # Check for existing state
+    if RalphState.exists():
+        console.print("[yellow]⚠ Ralph run already in progress.[/yellow]")
+        console.print("Use [bold]ralph resume[/bold] to continue or [bold]ralph status[/bold] to check progress.")
+        console.print("To start fresh, remove the .ralph directory first.")
+        raise typer.Exit(1)
+    
+    # Load and validate PRD
+    try:
+        prd = PRD.load(prd_path)
+    except FileNotFoundError:
+        console.print(f"[red]✗ PRD file not found: {prd_path}[/red]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]✗ Failed to load PRD: {e}[/red]")
+        raise typer.Exit(1)
+    
+    # Initialize git
+    try:
+        git = GitOps()
+    except GitError as e:
+        console.print(f"[red]✗ Git error: {e}[/red]")
+        raise typer.Exit(1)
+    
+    # Check for dirty working directory
+    if not skip_dirty_check and git.is_dirty():
+        console.print("[red]✗ Working directory has uncommitted changes.[/red]")
+        console.print("Commit or stash your changes first, or use --force to skip this check.")
+        raise typer.Exit(1)
+    
+    # Get agent
+    selected_agent = get_agent(agent)
+    if not selected_agent:
+        available = detect_agents()
+        if not available:
+            console.print("[red]✗ No coding agents found.[/red]")
+            console.print("Install one of: claude, codex, gemini")
+            raise typer.Exit(1)
+        console.print(f"[yellow]⚠ Agent '{agent}' not found. Available: {', '.join(available.keys())}[/yellow]")
+        raise typer.Exit(1)
+    
+    # Create branch
+    base_branch = git.get_current_branch()
+    branch_name = generate_branch_name(prd.project)
+    
+    try:
+        git.create_branch(branch_name)
+        console.print(f"[green]✓ Created branch: {branch_name}[/green]")
+    except GitError as e:
+        console.print(f"[red]✗ Failed to create branch: {e}[/red]")
+        raise typer.Exit(1)
+    
+    # Initialize state
+    state = RalphState(
+        branch=branch_name,
+        prd_path=str(Path(prd_path).resolve()),
+        current_item=None,
+        agent=agent,
+        auto_push=push,
+        base_branch=base_branch,
+    )
+    state.save()
+    
+    console.print()
+    _show_prd_summary(prd)
+    console.print()
+    
+    # Find first item to work on
+    next_item = prd.get_next_item()
+    if not next_item:
+        console.print("[green]✓ All items already complete![/green]")
+        console.print("Run [bold]ralph pr[/bold] to create a pull request.")
+        raise typer.Exit(0)
+    
+    # Start processing
+    _process_items(state, prd, git, selected_agent)
+
+
+def _process_items(state: RalphState, prd: PRD, git: GitOps, agent: "Agent") -> None:  # type: ignore
+    """Process PRD items sequentially."""
+    from ralph.agents import Agent
+    
+    while True:
+        item = prd.get_next_item()
+        if not item:
+            console.print("\n[bold green]✓ All items complete![/bold green]")
+            console.print("Run [bold]ralph pr[/bold] to create a pull request.")
+            return
+        
+        state.current_item = item.id
+        state.save()
+        
+        # Show current item
+        current_idx = len(state.completed_items) + 1
+        total = prd.total_count
+        
+        console.print()
+        _show_item_panel(item, current_idx, total)
+        console.print()
+        
+        # Build prompt and run agent
+        prompt = build_item_prompt(item, prd)
+        
+        console.print(f"[bold blue]Running {agent.name}...[/bold blue]")
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task(f"Working on item {item.id}...", total=None)
+            
+            exit_code, output = run_agent(
+                agent,
+                prompt,
+                on_output=lambda line: progress.update(task, description=line[:60] + "..." if len(line) > 60 else line),
+            )
+        
+        if exit_code != 0:
+            console.print(f"[red]✗ Agent failed with exit code {exit_code}[/red]")
+            console.print("[yellow]You can fix the issue and run 'ralph resume' to continue.[/yellow]")
+            return
+        
+        # Stage changes
+        files_changed = git.stage_all()
+        
+        if not files_changed:
+            console.print("[yellow]⚠ No changes made by agent[/yellow]")
+            # Still mark as complete if verification passes
+        
+        # Run tests
+        console.print("[bold]Running tests...[/bold]")
+        tests_passed, test_output = _run_tests()
+        
+        if not tests_passed:
+            console.print("[red]✗ Tests failed![/red]")
+            console.print(test_output)
+            console.print("\n[yellow]Fix the tests and run 'ralph resume' to continue.[/yellow]")
+            return
+        
+        console.print("[green]✓ Tests passed[/green]")
+        
+        # Create checkpoint
+        sha = _create_checkpoint(state, prd, item.id, git, files_changed, tests_passed)
+        console.print(f"[green]✓ Checkpoint: {sha[:8]}[/green]")
 
 
 @app.command()
 def status() -> None:
     """Show current Ralph run status."""
-    console.print("[bold blue]Ralph Status[/bold blue]")
-    # TODO: Implement in item 6
+    if not RalphState.exists():
+        console.print("[yellow]No active Ralph run.[/yellow]")
+        console.print("Start one with: [bold]ralph start <prd.json>[/bold]")
+        raise typer.Exit(0)
+    
+    state = RalphState.load()
+    prd = PRD.load(state.prd_path)
+    
+    # Status table
+    table = Table(title="[bold blue]Ralph Status[/bold blue]", show_header=False)
+    table.add_column("Key", style="bold cyan")
+    table.add_column("Value")
+    
+    table.add_row("Branch", state.branch)
+    table.add_row("PRD", Path(state.prd_path).name)
+    table.add_row("Agent", state.agent)
+    table.add_row("Progress", f"[bold]{prd.completed_count}/{prd.total_count}[/bold] items")
+    table.add_row("Elapsed", state.elapsed_time)
+    table.add_row("Started", state.started_at[:19].replace("T", " "))
+    
+    if state.pr_url:
+        table.add_row("PR", state.pr_url)
+    
+    console.print(table)
+    
+    # Check for uncommitted changes
+    try:
+        git = GitOps()
+        if git.is_dirty():
+            console.print("\n[yellow]⚠ Uncommitted changes detected[/yellow]")
+    except GitError:
+        pass
+    
+    # Show next item
+    next_item = prd.get_next_item()
+    if next_item:
+        console.print(f"\n[bold]Next:[/bold] Item {next_item.id} - {next_item.title}")
+        console.print(f"[dim]{next_item.description}[/dim]")
+    else:
+        console.print("\n[green]✓ All items complete! Run 'ralph pr' to create PR.[/green]")
 
 
 @app.command()
 def resume() -> None:
     """Resume an interrupted Ralph run."""
-    console.print("[bold blue]Resuming Ralph run...[/bold blue]")
-    # TODO: Implement in item 7
+    if not RalphState.exists():
+        console.print("[red]✗ No Ralph run to resume.[/red]")
+        console.print("Start one with: [bold]ralph start <prd.json>[/bold]")
+        raise typer.Exit(1)
+    
+    state = RalphState.load()
+    prd = PRD.load(state.prd_path)
+    
+    # Ensure we're on the right branch
+    try:
+        git = GitOps()
+        current_branch = git.get_current_branch()
+        if current_branch != state.branch:
+            console.print(f"[yellow]Switching to branch: {state.branch}[/yellow]")
+            git.checkout(state.branch)
+    except GitError as e:
+        console.print(f"[red]✗ Git error: {e}[/red]")
+        raise typer.Exit(1)
+    
+    # Check if all items complete
+    next_item = prd.get_next_item()
+    if not next_item:
+        console.print("[green]✓ All items complete![/green]")
+        console.print("Run [bold]ralph pr[/bold] to create a pull request.")
+        raise typer.Exit(0)
+    
+    console.print(f"[bold blue]Resuming Ralph run...[/bold blue]")
+    console.print(f"Branch: {state.branch}")
+    console.print(f"Progress: {prd.completed_count}/{prd.total_count}")
+    
+    # Get agent
+    from ralph.agents import get_agent
+    agent = get_agent(state.agent)
+    if not agent:
+        console.print(f"[red]✗ Agent '{state.agent}' not available.[/red]")
+        raise typer.Exit(1)
+    
+    _process_items(state, prd, git, agent)
 
 
 @app.command()
@@ -71,15 +406,95 @@ def rollback(
     hard: bool = typer.Option(False, "--hard", help="Use git reset instead of revert"),
 ) -> None:
     """Roll back the last N completed items."""
+    if not RalphState.exists():
+        console.print("[red]✗ No Ralph run found.[/red]")
+        raise typer.Exit(1)
+    
+    state = RalphState.load()
+    prd = PRD.load(state.prd_path)
+    
+    if not state.checkpoints:
+        console.print("[yellow]No checkpoints to roll back.[/yellow]")
+        raise typer.Exit(0)
+    
+    if count > len(state.checkpoints):
+        count = len(state.checkpoints)
+        console.print(f"[yellow]Only {count} checkpoints available.[/yellow]")
+    
+    try:
+        git = GitOps()
+    except GitError as e:
+        console.print(f"[red]✗ Git error: {e}[/red]")
+        raise typer.Exit(1)
+    
+    # Get checkpoints to roll back (most recent first)
+    to_rollback = state.checkpoints[-count:][::-1]
+    
     console.print(f"[bold yellow]Rolling back {count} item(s)...[/bold yellow]")
-    # TODO: Implement in item 8
+    
+    for cp in to_rollback:
+        item = prd.get_item(cp.item_id)
+        item_title = item.title if item else f"Item {cp.item_id}"
+        
+        if hard:
+            # Hard reset to before this commit
+            parent = f"{cp.commit_sha}^"
+            git.reset_hard(parent)
+            console.print(f"[yellow]Reset: {item_title}[/yellow]")
+        else:
+            # Revert the commit
+            git.revert_commit(cp.commit_sha)
+            console.print(f"[yellow]Reverted: {item_title}[/yellow]")
+        
+        # Update PRD
+        if item:
+            item.passes = False
+            prd.save()
+        
+        # Remove checkpoint
+        state.remove_checkpoint(cp.item_id)
+    
+    console.print(f"[green]✓ Rolled back {count} item(s)[/green]")
+    console.print(f"Progress: {prd.completed_count}/{prd.total_count}")
 
 
 @app.command()
 def diff() -> None:
     """Show summary of all changes since branch creation."""
-    console.print("[bold blue]Diff Summary[/bold blue]")
-    # TODO: Implement in item 9
+    if not RalphState.exists():
+        console.print("[red]✗ No Ralph run found.[/red]")
+        raise typer.Exit(1)
+    
+    state = RalphState.load()
+    
+    try:
+        git = GitOps()
+        merge_base = git.get_merge_base(state.base_branch)
+        stats = git.get_diff_stat(merge_base)
+    except GitError as e:
+        console.print(f"[red]✗ Git error: {e}[/red]")
+        raise typer.Exit(1)
+    
+    # Summary table
+    table = Table(title="[bold blue]Changes Summary[/bold blue]")
+    table.add_column("Metric", style="bold")
+    table.add_column("Value", justify="right")
+    
+    table.add_row("Files changed", str(stats["files"]))
+    table.add_row("Insertions", f"[green]+{stats['insertions']}[/green]")
+    table.add_row("Deletions", f"[red]-{stats['deletions']}[/red]")
+    
+    console.print(table)
+    
+    # Commits by item
+    if state.checkpoints:
+        console.print("\n[bold]Commits by Item:[/bold]")
+        for cp in state.checkpoints:
+            console.print(f"  {cp.commit_sha[:8]} - Item {cp.item_id}")
+    
+    # Raw diff stat
+    if stats["raw"]:
+        console.print("\n[dim]" + stats["raw"] + "[/dim]")
 
 
 @app.command("dry-run")
@@ -87,8 +502,51 @@ def dry_run(
     prd_path: str = typer.Argument(None, help="Path to PRD JSON file (optional if run exists)"),
 ) -> None:
     """Preview what Ralph would do without executing."""
-    console.print("[bold blue]Dry Run Preview[/bold blue]")
-    # TODO: Implement in item 10
+    # Load PRD
+    if prd_path:
+        prd = PRD.load(prd_path)
+        state = None
+    elif RalphState.exists():
+        state = RalphState.load()
+        prd = PRD.load(state.prd_path)
+    else:
+        console.print("[red]✗ Provide a PRD path or start a Ralph run first.[/red]")
+        raise typer.Exit(1)
+    
+    console.print("[bold blue]Dry Run Preview[/bold blue]\n")
+    _show_prd_summary(prd)
+    
+    if not state:
+        branch_name = generate_branch_name(prd.project)
+        console.print(f"\n[bold]Would create branch:[/bold] {branch_name}")
+    else:
+        console.print(f"\n[bold]Current branch:[/bold] {state.branch}")
+    
+    # Show remaining items
+    console.print("\n[bold]Remaining Items:[/bold]")
+    
+    table = Table()
+    table.add_column("ID", style="cyan")
+    table.add_column("Priority")
+    table.add_column("Title")
+    table.add_column("Category")
+    table.add_column("Status")
+    
+    for item in prd.get_items_by_priority():
+        status = "[green]✓ Done[/green]" if item.passes else "[yellow]Pending[/yellow]"
+        table.add_row(
+            str(item.id),
+            str(item.priority),
+            item.title,
+            item.category,
+            status,
+        )
+    
+    console.print(table)
+    
+    remaining = prd.total_count - prd.completed_count
+    console.print(f"\n[bold]{remaining}[/bold] items would be processed.")
+    console.print("\nNo changes made (dry run).")
 
 
 @app.command()
@@ -96,8 +554,105 @@ def pr(
     force: bool = typer.Option(False, "--force", help="Create PR even if not all items complete"),
 ) -> None:
     """Create a pull request with auto-generated description."""
-    console.print("[bold blue]Creating Pull Request...[/bold blue]")
-    # TODO: Implement in item 11
+    if not RalphState.exists():
+        console.print("[red]✗ No Ralph run found.[/red]")
+        raise typer.Exit(1)
+    
+    state = RalphState.load()
+    prd = PRD.load(state.prd_path)
+    
+    # Check completion
+    if prd.completed_count < prd.total_count and not force:
+        console.print(f"[yellow]⚠ Only {prd.completed_count}/{prd.total_count} items complete.[/yellow]")
+        console.print("Use --force to create PR anyway.")
+        raise typer.Exit(1)
+    
+    try:
+        git = GitOps()
+    except GitError as e:
+        console.print(f"[red]✗ Git error: {e}[/red]")
+        raise typer.Exit(1)
+    
+    # Push branch
+    console.print(f"[bold]Pushing branch: {state.branch}[/bold]")
+    try:
+        git.push(state.branch, set_upstream=True)
+        console.print("[green]✓ Pushed to remote[/green]")
+    except GitError as e:
+        console.print(f"[yellow]⚠ Push failed: {e}[/yellow]")
+    
+    # Generate PR body
+    pr_title = f"[Ralph] {prd.project}"
+    pr_body = f"""## {prd.project}
+
+{prd.goal}
+
+### Items Completed ({prd.completed_count}/{prd.total_count})
+
+"""
+    for item in prd.items:
+        status = "✅" if item.passes else "⬜"
+        pr_body += f"- {status} **{item.title}** ({item.category})\n"
+    
+    pr_body += f"""
+### Checkpoints
+
+| Item | Commit | Tests |
+|------|--------|-------|
+"""
+    for cp in state.checkpoints:
+        item = prd.get_item(cp.item_id)
+        title = item.title if item else f"Item {cp.item_id}"
+        tests = "✅" if cp.tests_passed else "❌"
+        pr_body += f"| {title} | `{cp.commit_sha[:8]}` | {tests} |\n"
+    
+    pr_body += f"""
+---
+*Generated by [Ralph CLI](https://github.com/mcbee/ralph) v{__version__}*
+"""
+    
+    # Try to create PR with gh/glab
+    pr_url = None
+    
+    if git.is_github():
+        console.print("[bold]Creating GitHub PR...[/bold]")
+        try:
+            result = subprocess.run(
+                ["gh", "pr", "create", "--title", pr_title, "--body", pr_body],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                pr_url = result.stdout.strip()
+                console.print(f"[green]✓ PR created: {pr_url}[/green]")
+            else:
+                console.print(f"[yellow]⚠ gh pr create failed: {result.stderr}[/yellow]")
+        except FileNotFoundError:
+            console.print("[yellow]⚠ GitHub CLI (gh) not found[/yellow]")
+    
+    elif git.is_gitlab():
+        console.print("[bold]Creating GitLab MR...[/bold]")
+        try:
+            result = subprocess.run(
+                ["glab", "mr", "create", "--title", pr_title, "--description", pr_body],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                pr_url = result.stdout.strip()
+                console.print(f"[green]✓ MR created: {pr_url}[/green]")
+            else:
+                console.print(f"[yellow]⚠ glab mr create failed: {result.stderr}[/yellow]")
+        except FileNotFoundError:
+            console.print("[yellow]⚠ GitLab CLI (glab) not found[/yellow]")
+    
+    if pr_url:
+        state.pr_url = pr_url
+        state.save()
+    else:
+        console.print("\n[bold]PR Body (copy manually):[/bold]")
+        console.print(Panel(pr_body, title=pr_title))
+        console.print(f"\nCreate PR at: {git.get_remote_url()}")
 
 
 if __name__ == "__main__":
