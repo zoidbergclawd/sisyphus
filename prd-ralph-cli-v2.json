@@ -34,7 +34,7 @@
       "title": "Granular Status & Live Tail",
       "description": "Show current sub-step action in status and allow log tailing.",
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "verification": "ralph status shows 'Generating code...' vs 'Running tests...'. ralph log tails output.",
       "steps": [
         "Update Agent interface to report granular status (thinking, acting, verifying)",

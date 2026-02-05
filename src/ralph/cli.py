@@ -365,6 +365,12 @@ def status() -> None:
     table.add_row("Agent", state.agent)
     table.add_row("Progress", f"[bold]{prd.completed_count}/{prd.total_count}[/bold] items")
     table.add_row("Elapsed", state.elapsed_time)
+
+    # Calculate and display ETA if available
+    eta = state.calculate_eta(prd.total_count)
+    if eta:
+        table.add_row("ETA", f"[bold cyan]{eta}[/bold cyan]")
+
     table.add_row("Started", state.started_at[:19].replace("T", " "))
 
     # Show current action if set

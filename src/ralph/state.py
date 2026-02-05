@@ -199,6 +199,51 @@ class RalphState:
         else:
             return f"{seconds}s"
 
+    def calculate_eta(self, total_items: int) -> str | None:
+        """Calculate estimated time to completion based on item velocity.
+
+        Returns a human-readable ETA string like '~45m' or '~2h 15m',
+        or None if there's not enough data to calculate.
+
+        Args:
+            total_items: Total number of items in the PRD.
+        """
+        # Need at least one completed checkpoint to calculate velocity
+        if not self.checkpoints or not self.started_at:
+            return None
+
+        completed_count = len(self.completed_items)
+        remaining_count = total_items - completed_count
+
+        # If all items are complete, no ETA needed
+        if remaining_count <= 0:
+            return None
+
+        # Calculate elapsed time since start
+        start = datetime.fromisoformat(self.started_at)
+        now = datetime.now()
+        elapsed_seconds = (now - start).total_seconds()
+
+        # Calculate average time per completed item
+        if completed_count == 0:
+            return None
+
+        avg_seconds_per_item = elapsed_seconds / completed_count
+
+        # Calculate ETA for remaining items
+        eta_seconds = int(avg_seconds_per_item * remaining_count)
+
+        # Format as human-readable string
+        hours, remainder = divmod(eta_seconds, 3600)
+        minutes, _ = divmod(remainder, 60)
+
+        if hours > 0:
+            return f"~{hours}h {minutes}m"
+        elif minutes > 0:
+            return f"~{minutes}m"
+        else:
+            return "~<1m"
+
     def set_action(self, action: str) -> None:
         """Set the current action and timestamp."""
         self.current_action = action
