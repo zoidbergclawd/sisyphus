@@ -427,3 +427,146 @@ class TestResetItem:
         # Verify current_item was set
         state = RalphState.load()
         assert state.current_item == 1
+
+
+class TestStatusCommand:
+    """Test status command with granular action display."""
+
+    def test_status_no_run(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test status when no Ralph run exists."""
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["status"])
+        assert result.exit_code == 0
+        assert "No active Ralph run" in result.stdout
+
+    def test_status_shows_current_action(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test status displays current_action when set."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create PRD
+        prd_data = {
+            "project": "Test",
+            "goal": "Test",
+            "items": [
+                {"id": 1, "category": "a", "title": "Item 1", "description": "x", "priority": 1, "passes": False},
+            ],
+        }
+        prd_path = tmp_path / "test.json"
+        prd_path.write_text(json.dumps(prd_data))
+
+        # Create state with current_action
+        from ralph.state import RalphState
+        state = RalphState(
+            branch="test-branch",
+            prd_path=str(prd_path),
+            current_item=1,
+            current_action="Generating code",
+            action_started_at="2026-01-01T00:00:00",
+        )
+        state.save()
+
+        result = runner.invoke(app, ["status"])
+        assert result.exit_code == 0
+        assert "Generating code" in result.stdout
+
+    def test_status_shows_no_action_when_idle(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test status shows idle state when no action is set."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create PRD
+        prd_data = {
+            "project": "Test",
+            "goal": "Test",
+            "items": [
+                {"id": 1, "category": "a", "title": "Item 1", "description": "x", "priority": 1, "passes": False},
+            ],
+        }
+        prd_path = tmp_path / "test.json"
+        prd_path.write_text(json.dumps(prd_data))
+
+        # Create state without current_action
+        from ralph.state import RalphState
+        state = RalphState(
+            branch="test-branch",
+            prd_path=str(prd_path),
+            current_item=1,
+        )
+        state.save()
+
+        result = runner.invoke(app, ["status"])
+        assert result.exit_code == 0
+        # Should not show "Current Action" row when idle
+        assert "Generating code" not in result.stdout
+
+
+class TestLogCommand:
+    """Test ralph log command."""
+
+    def test_log_no_run(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test log command when no Ralph run exists."""
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["log"])
+        assert result.exit_code == 1
+        assert "No Ralph run found" in result.stdout
+
+    def test_log_no_logfile(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test log command when no log file exists."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create PRD
+        prd_data = {
+            "project": "Test",
+            "goal": "Test",
+            "items": [
+                {"id": 1, "category": "a", "title": "Item 1", "description": "x", "priority": 1, "passes": False},
+            ],
+        }
+        prd_path = tmp_path / "test.json"
+        prd_path.write_text(json.dumps(prd_data))
+
+        # Create state
+        from ralph.state import RalphState
+        state = RalphState(
+            branch="test-branch",
+            prd_path=str(prd_path),
+            current_item=1,
+        )
+        state.save()
+
+        result = runner.invoke(app, ["log"])
+        assert result.exit_code == 1
+        assert "No log file" in result.stdout
+
+    def test_log_shows_content(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test log command shows log file content."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create PRD
+        prd_data = {
+            "project": "Test",
+            "goal": "Test",
+            "items": [
+                {"id": 1, "category": "a", "title": "Item 1", "description": "x", "priority": 1, "passes": False},
+            ],
+        }
+        prd_path = tmp_path / "test.json"
+        prd_path.write_text(json.dumps(prd_data))
+
+        # Create state
+        from ralph.state import RalphState
+        state = RalphState(
+            branch="test-branch",
+            prd_path=str(prd_path),
+            current_item=1,
+        )
+        state.save()
+
+        # Create log file
+        ralph_dir = tmp_path / ".ralph"
+        ralph_dir.mkdir(exist_ok=True)
+        log_file = ralph_dir / "current.log"
+        log_file.write_text("Line 1\nLine 2\nLine 3\n")
+
+        result = runner.invoke(app, ["log", "--lines", "2"])
+        assert result.exit_code == 0
+        assert "Line 2" in result.stdout or "Line 3" in result.stdout

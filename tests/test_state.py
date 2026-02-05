@@ -151,12 +151,86 @@ class TestRalphState:
     def test_gitignore_updated(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that .ralph/ is added to .gitignore."""
         monkeypatch.chdir(tmp_path)
-        
+
         # Start with empty gitignore
         (tmp_path / ".gitignore").write_text("node_modules/\n")
-        
+
         state = RalphState(branch="test", prd_path="/test.json", current_item=None)
         state.save()
-        
+
         gitignore = (tmp_path / ".gitignore").read_text()
         assert ".ralph/" in gitignore
+
+    def test_current_action_default(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test current_action defaults to empty string."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        state = RalphState(branch="test", prd_path="/test.json", current_item=None)
+        assert state.current_action == ""
+        assert state.action_started_at == ""
+
+    def test_set_action(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test setting current action."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        state = RalphState(branch="test", prd_path="/test.json", current_item=1)
+        state.save()
+
+        state.set_action("Generating code")
+
+        assert state.current_action == "Generating code"
+        assert state.action_started_at != ""
+
+        # Verify persisted
+        loaded = RalphState.load()
+        assert loaded.current_action == "Generating code"
+        assert loaded.action_started_at != ""
+
+    def test_clear_action(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test clearing current action."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        state = RalphState(branch="test", prd_path="/test.json", current_item=1)
+        state.save()
+
+        state.set_action("Running tests")
+        state.clear_action()
+
+        assert state.current_action == ""
+        assert state.action_started_at == ""
+
+        # Verify persisted
+        loaded = RalphState.load()
+        assert loaded.current_action == ""
+
+    def test_action_elapsed_time(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test action elapsed time calculation."""
+        from datetime import datetime, timedelta
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".gitignore").write_text("")
+
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=1,
+            action_started_at=(datetime.now() - timedelta(seconds=45)).isoformat(),
+            current_action="Running tests",
+        )
+
+        elapsed = state.action_elapsed_time
+        assert "s" in elapsed
+        # Should be around 45s
+        assert "45" in elapsed or "44" in elapsed or "46" in elapsed
+
+    def test_action_elapsed_time_empty(self) -> None:
+        """Test action elapsed time when no action is set."""
+        state = RalphState(
+            branch="test",
+            prd_path="/test.json",
+            current_item=None,
+        )
+
+        assert state.action_elapsed_time == ""

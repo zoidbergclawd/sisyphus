@@ -88,3 +88,57 @@ class TestBuildPrompt:
         assert "Step 2" in prompt
         assert "Tests pass" in prompt
         assert "Important note" in prompt
+
+
+class TestRunAgentLogging:
+    """Test agent output logging."""
+
+    def test_run_agent_logs_to_file(self, tmp_path, monkeypatch) -> None:
+        """Test that run_agent logs output to file when log_file is provided."""
+        from ralph.agents import run_agent, Agent
+        from pathlib import Path
+
+        monkeypatch.chdir(tmp_path)
+
+        # Create a simple script that outputs some lines
+        script = tmp_path / "test_script.sh"
+        script.write_text("#!/bin/bash\necho 'line 1'\necho 'line 2'\necho 'line 3'\n")
+        script.chmod(0o755)
+
+        agent = Agent(
+            name="Test",
+            command=str(script),
+            args=[],
+            prompt_flag="",
+        )
+
+        log_file = tmp_path / "test.log"
+        exit_code, output = run_agent(agent, "", log_file=log_file)
+
+        assert exit_code == 0
+        assert log_file.exists()
+        log_content = log_file.read_text()
+        assert "line 1" in log_content
+        assert "line 2" in log_content
+        assert "line 3" in log_content
+
+    def test_run_agent_without_log_file(self, tmp_path, monkeypatch) -> None:
+        """Test run_agent still works without log_file parameter."""
+        from ralph.agents import run_agent, Agent
+
+        monkeypatch.chdir(tmp_path)
+
+        script = tmp_path / "test_script.sh"
+        script.write_text("#!/bin/bash\necho 'hello'\n")
+        script.chmod(0o755)
+
+        agent = Agent(
+            name="Test",
+            command=str(script),
+            args=[],
+            prompt_flag="",
+        )
+
+        exit_code, output = run_agent(agent, "")
+        assert exit_code == 0
+        assert "hello" in output

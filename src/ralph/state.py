@@ -54,6 +54,8 @@ class RalphState:
     auto_push: bool = False
     pr_url: str | None = None
     base_branch: str = "main"
+    current_action: str = ""
+    action_started_at: str = ""
 
     RALPH_DIR = ".ralph"
     STATE_FILE = "state.json"
@@ -99,6 +101,8 @@ class RalphState:
             auto_push=data.get("auto_push", False),
             pr_url=data.get("pr_url"),
             base_branch=data.get("base_branch", "main"),
+            current_action=data.get("current_action", ""),
+            action_started_at=data.get("action_started_at", ""),
         )
 
     def save(self) -> None:
@@ -127,6 +131,8 @@ class RalphState:
             "auto_push": self.auto_push,
             "pr_url": self.pr_url,
             "base_branch": self.base_branch,
+            "current_action": self.current_action,
+            "action_started_at": self.action_started_at,
         }
         
         with open(self.state_file(), "w") as f:
@@ -162,19 +168,48 @@ class RalphState:
         """Get elapsed time since start."""
         if not self.started_at:
             return "unknown"
-        
+
         start = datetime.fromisoformat(self.started_at)
         elapsed = datetime.now() - start
-        
+
         hours, remainder = divmod(int(elapsed.total_seconds()), 3600)
         minutes, seconds = divmod(remainder, 60)
-        
+
         if hours > 0:
             return f"{hours}h {minutes}m"
         elif minutes > 0:
             return f"{minutes}m {seconds}s"
         else:
             return f"{seconds}s"
+
+    @property
+    def action_elapsed_time(self) -> str:
+        """Get elapsed time since action started."""
+        if not self.action_started_at:
+            return ""
+
+        start = datetime.fromisoformat(self.action_started_at)
+        elapsed = datetime.now() - start
+
+        total_seconds = int(elapsed.total_seconds())
+        minutes, seconds = divmod(total_seconds, 60)
+
+        if minutes > 0:
+            return f"{minutes}m {seconds}s"
+        else:
+            return f"{seconds}s"
+
+    def set_action(self, action: str) -> None:
+        """Set the current action and timestamp."""
+        self.current_action = action
+        self.action_started_at = datetime.now().isoformat()
+        self.save()
+
+    def clear_action(self) -> None:
+        """Clear the current action."""
+        self.current_action = ""
+        self.action_started_at = ""
+        self.save()
 
     @classmethod
     def clear(cls) -> None:

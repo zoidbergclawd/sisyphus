@@ -246,83 +246,102 @@ def start(
 def _process_items(state: RalphState, prd: PRD, git: GitOps, agent: "Agent") -> None:  # type: ignore
     """Process PRD items sequentially."""
     from ralph.agents import Agent
-    
+
+    # Log file for agent output
+    log_file = RalphState.state_dir() / "current.log"
+
     while True:
         item = prd.get_next_item()
         if not item:
+            state.clear_action()
             console.print("\n[bold green]✓ All items complete![/bold green]")
             console.print("Run [bold]ralph pr[/bold] to create a pull request.")
             return
-        
+
         state.current_item = item.id
         state.save()
-        
+
         # Show current item
         current_idx = len(state.completed_items) + 1
         total = prd.total_count
-        
+
         console.print()
         _show_item_panel(item, current_idx, total)
         console.print()
-        
+
         # Build prompt and run agent
         prompt = build_item_prompt(item, prd)
-        
+
         console.print(f"[bold blue]Running {agent.name}...[/bold blue]")
-        
+
+        # Set action to generating code
+        state.set_action("Generating code...")
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             console=console,
         ) as progress:
             task = progress.add_task(f"Working on item {item.id}...", total=None)
-            
+
             exit_code, output = run_agent(
                 agent,
                 prompt,
                 on_output=lambda line: progress.update(task, description=line[:60] + "..." if len(line) > 60 else line),
+                log_file=log_file,
             )
-        
+
         if exit_code != 0:
+            state.set_action("Failed - waiting for fix")
             console.print(f"[red]✗ Agent failed with exit code {exit_code}[/red]")
             console.print("[yellow]You can fix the issue and run 'ralph resume' to continue.[/yellow]")
             return
-        
+
         # Stage changes
+        state.set_action("Staging changes...")
         files_changed = git.stage_all()
-        
+
         if not files_changed:
             console.print("[yellow]⚠ No changes made by agent[/yellow]")
             # Still mark as complete if verification passes
-        
+
         # Run tests
+        state.set_action("Running tests...")
         console.print("[bold]Running tests...[/bold]")
         tests_passed, test_output = _run_tests()
-        
+
         if not tests_passed:
+            state.set_action("Tests failed - waiting for fix")
             console.print("[red]✗ Tests failed![/red]")
             console.print(test_output)
             console.print("\n[yellow]Fix the tests and run 'ralph resume' to continue.[/yellow]")
             return
-        
+
         console.print("[green]✓ Tests passed[/green]")
-        
+
         # Run pre-commit hooks if defined
         if prd.hooks.pre_commit:
+            state.set_action("Running pre-commit hooks...")
             from ralph.hooks import run_pre_commit_hooks
             hooks_passed, _ = run_pre_commit_hooks(prd.hooks, console)
             if not hooks_passed:
+                state.set_action("Hooks failed - waiting for fix")
                 console.print("\n[yellow]Fix the hook failures and run 'ralph resume' to continue.[/yellow]")
                 return
-        
+
         # Create checkpoint
+        state.set_action("Creating checkpoint...")
         sha = _create_checkpoint(state, prd, item.id, git, files_changed, tests_passed)
         console.print(f"[green]✓ Checkpoint: {sha[:8]}[/green]")
-        
+
         # Run post-item hooks if defined
         if prd.hooks.post_item:
+            state.set_action("Running post-item hooks...")
             from ralph.hooks import run_post_item_hooks
             run_post_item_hooks(prd.hooks, console)
+
+        # Clear action after item is complete
+        state.clear_action()
 
 
 @app.command()
@@ -332,27 +351,34 @@ def status() -> None:
         console.print("[yellow]No active Ralph run.[/yellow]")
         console.print("Start one with: [bold]ralph start <prd.json>[/bold]")
         raise typer.Exit(0)
-    
+
     state = RalphState.load()
     prd = PRD.load(state.prd_path)
-    
+
     # Status table
     table = Table(title="[bold blue]Ralph Status[/bold blue]", show_header=False)
     table.add_column("Key", style="bold cyan")
     table.add_column("Value")
-    
+
     table.add_row("Branch", state.branch)
     table.add_row("PRD", Path(state.prd_path).name)
     table.add_row("Agent", state.agent)
     table.add_row("Progress", f"[bold]{prd.completed_count}/{prd.total_count}[/bold] items")
     table.add_row("Elapsed", state.elapsed_time)
     table.add_row("Started", state.started_at[:19].replace("T", " "))
-    
+
+    # Show current action if set
+    if state.current_action:
+        action_display = f"[bold yellow]{state.current_action}[/bold yellow]"
+        if state.action_elapsed_time:
+            action_display += f" [dim]({state.action_elapsed_time})[/dim]"
+        table.add_row("Action", action_display)
+
     if state.pr_url:
         table.add_row("PR", state.pr_url)
-    
+
     console.print(table)
-    
+
     # Check for uncommitted changes
     try:
         git = GitOps()
@@ -360,7 +386,7 @@ def status() -> None:
             console.print("\n[yellow]⚠ Uncommitted changes detected[/yellow]")
     except GitError:
         pass
-    
+
     # Show next item
     next_item = prd.get_next_item()
     if next_item:
@@ -368,6 +394,41 @@ def status() -> None:
         console.print(f"[dim]{next_item.description}[/dim]")
     else:
         console.print("\n[green]✓ All items complete! Run 'ralph pr' to create PR.[/green]")
+
+
+@app.command()
+def log(
+    lines: int = typer.Option(20, "-n", "--lines", help="Number of lines to show"),
+    follow: bool = typer.Option(False, "-f", "--follow", help="Follow log output (like tail -f)"),
+) -> None:
+    """Show the current agent log output."""
+    if not RalphState.exists():
+        console.print("[red]✗ No Ralph run found.[/red]")
+        raise typer.Exit(1)
+
+    log_file = RalphState.state_dir() / "current.log"
+    if not log_file.exists():
+        console.print("[yellow]No log file found.[/yellow]")
+        console.print("Logs are created when an agent is running.")
+        raise typer.Exit(1)
+
+    if follow:
+        # Use tail -f for live following
+        console.print(f"[dim]Following {log_file}... (Ctrl+C to stop)[/dim]\n")
+        try:
+            subprocess.run(["tail", "-f", str(log_file)])
+        except KeyboardInterrupt:
+            pass
+    else:
+        # Show last N lines
+        content = log_file.read_text()
+        content_lines = content.splitlines()
+
+        if len(content_lines) > lines:
+            content_lines = content_lines[-lines:]
+
+        for line in content_lines:
+            console.print(line)
 
 
 @app.command()

@@ -3,6 +3,7 @@
 import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 
@@ -76,14 +77,28 @@ def run_agent(
     prompt: str,
     cwd: str | None = None,
     on_output: Callable[[str], None] | None = None,
+    log_file: Path | None = None,
 ) -> tuple[int, str]:
     """
     Run an agent with the given prompt.
-    
+
+    Args:
+        agent: Agent to run
+        prompt: Prompt to send to agent
+        cwd: Working directory
+        on_output: Callback for each output line
+        log_file: Optional file path to log all output
+
     Returns (exit_code, output).
     """
     cmd = agent.build_command(prompt)
-    
+
+    # Open log file if provided
+    log_handle = None
+    if log_file:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        log_handle = open(log_file, "w")
+
     try:
         process = subprocess.Popen(
             cmd,
@@ -93,22 +108,28 @@ def run_agent(
             text=True,
             bufsize=1,
         )
-        
+
         output_lines: list[str] = []
-        
+
         if process.stdout:
             for line in process.stdout:
                 output_lines.append(line)
                 if on_output:
                     on_output(line.rstrip())
-        
+                if log_handle:
+                    log_handle.write(line)
+                    log_handle.flush()
+
         process.wait()
         return process.returncode, "".join(output_lines)
-        
+
     except FileNotFoundError:
         return -1, f"Agent not found: {agent.command}"
     except Exception as e:
         return -1, f"Error running agent: {e}"
+    finally:
+        if log_handle:
+            log_handle.close()
 
 
 def build_item_prompt(item: "PRDItem", prd: "PRD") -> str:  # type: ignore

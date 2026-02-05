@@ -17,7 +17,7 @@
       "title": "Reset Item Command",
       "description": "Command to reset a specific item's state and revert its changes, allowing clean retry.",
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "verification": "ralph reset-item 5 reverts files from item 5 commit and resets state to make it pending.",
       "steps": [
         "Implement `ralph reset-item <id>` command",
@@ -25,7 +25,8 @@
         "Find commit associated with item (if any)",
         "Revert commit (git revert or reset depending on safety)",
         "Update state.json: remove from completed, set as current if desired"
-      ]
+      ],
+      "notes": ""
     },
     {
       "id": 2,
@@ -40,7 +41,8 @@
         "Update state.json with `current_action` field",
         "Update `ralph status` to read/display `current_action`",
         "Implement `ralph log` command to tail the active agent log file"
-      ]
+      ],
+      "notes": ""
     },
     {
       "id": 3,
@@ -54,7 +56,8 @@
         "Calculate average time per completed item from checkpoints",
         "Multiply avg by remaining items",
         "Display predicted finish time in `ralph status`"
-      ]
+      ],
+      "notes": ""
     },
     {
       "id": 4,
@@ -69,7 +72,8 @@
         "Configurable timeout (default 10m)",
         "On timeout: check process state, maybe send alert/notification",
         "Add `--watchdog-timeout` flag to `ralph start`"
-      ]
+      ],
+      "notes": ""
     }
   ]
 }
