@@ -264,6 +264,34 @@ Ralph replaces `sisyphus.sh` with these improvements:
 2. Convert your task list to PRD JSON format
 3. Run `ralph start your-prd.json`
 
+## Using with The Companion (Swarm Controller)
+
+You can run Ralph with the [Claude Code Controller (The Companion)](https://github.com/The-Vibe-Company/claude-code-controller) for a rich web UI, parallel session management, and full visibility.
+
+### Quick Start (Swarm Harness)
+
+Use the included harness script to launch The Companion and Ralph together:
+
+```bash
+# Ensure you have 'bun' installed
+./swarm.py start my-feature-prd.json
+```
+
+This will:
+1. Start The Companion server on port 3456 (if not running).
+2. Generate a unique session ID for this run.
+3. Launch Ralph, configured to stream all agent activity to the UI.
+4. Print the session URL for you to open.
+
+### Manual Usage
+
+If you prefer to run manually:
+
+```bash
+export RALPH_COMPANION_URL="ws://localhost:3456/ws/cli/my-custom-session-id"
+ralph start my-feature-prd.json
+```
+
 ## Development
 
 ```bash

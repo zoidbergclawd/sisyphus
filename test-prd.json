@@ -1,0 +1,15 @@
+{
+  "project": "Ralph Swarm Test",
+  "goal": "Prove Ralph can orchestrate Codex via the Companion harness",
+  "items": [
+    {
+      "id": 1,
+      "category": "setup",
+      "title": "Create a Hello World",
+      "description": "Create a python script hello_ralph.py that prints 'Hello from Codex Swarm'.",
+      "priority": 1,
+      "verification": "python3 hello_ralph.py returns the correct string",
+      "steps": ["Create file", "Write code", "Test it"]
+    }
+  ]
+}

@@ -23,6 +23,13 @@ class Agent:
     def build_command(self, prompt: str, model: str | None = None) -> list[str]:
         """Build the full command to run the agent."""
         cmd = [self.command, *self.args]
+        
+        # Check for Companion/Controller integration
+        import os
+        companion_url = os.environ.get("RALPH_COMPANION_URL")
+        if companion_url and self.command in ("claude", "codex"):
+            cmd.extend(["--sdk-url", companion_url])
+            
         if model:
             cmd.extend([self.model_flag, model])
         if self.prompt_flag:
@@ -122,6 +129,7 @@ AGENTS: dict[str, Agent] = {
         command="claude",
         args=["--dangerously-skip-permissions"],
         prompt_flag="-p",
+        model_flag="--model",
     ),
     "codex": Agent(
         name="Codex CLI",
@@ -197,7 +205,7 @@ def run_agent(
     log_handle = None
     if log_file:
         log_file.parent.mkdir(parents=True, exist_ok=True)
-        log_handle = open(log_file, "w")
+        log_handle = open(log_file, "a")
 
     # Initialize watchdog if enabled
     watchdog: WatchdogMonitor | None = None
