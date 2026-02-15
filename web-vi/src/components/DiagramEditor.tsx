@@ -1,26 +1,25 @@
 "use client";
 
-import { useCallback, useRef, useMemo, useState } from "react";
+import { useCallback, useRef, useMemo } from "react";
 import ReactFlow, {
   addEdge,
-  useNodesState,
-  useEdgesState,
   Controls,
   Background,
   BackgroundVariant,
   type Connection,
   type Edge,
   type Node,
+  type NodeChange,
+  type EdgeChange,
   type NodeDragHandler,
   type ReactFlowInstance,
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { NODE_TYPES } from "./nodes";
 import { findContainingLoop, reparentNode } from "./parentChildHelpers";
-import { runDiagram } from "../engine/useExecution";
 
 /** Initial demo nodes to populate the canvas */
-const INITIAL_NODES: Node[] = [
+export const INITIAL_NODES: Node[] = [
   {
     id: "ctrl-a",
     type: "NumericControl",
@@ -47,7 +46,7 @@ const INITIAL_NODES: Node[] = [
   },
 ];
 
-const INITIAL_EDGES: Edge[] = [];
+export const INITIAL_EDGES: Edge[] = [];
 
 /** Unique ID counter for new nodes dragged from the palette */
 let idCounter = 0;
@@ -73,30 +72,29 @@ const DEFAULT_DATA: Record<string, Record<string, unknown>> = {
   WhileLoop: { label: "While Loop" },
 };
 
-export default function DiagramEditor() {
-  const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const [nodes, setNodes, onNodesChange] = useNodesState(INITIAL_NODES);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(INITIAL_EDGES);
-  const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
+export interface DiagramEditorProps {
+  nodes: Node[];
+  edges: Edge[];
+  setNodes: React.Dispatch<React.SetStateAction<Node[]>>;
+  setEdges: React.Dispatch<React.SetStateAction<Edge[]>>;
+  onNodesChange: (changes: NodeChange[]) => void;
+  onEdgesChange: (changes: EdgeChange[]) => void;
+  onRun: () => void;
+  isRunning: boolean;
+}
 
-  /** Execute the diagram through the engine and update indicators */
-  const onRun = useCallback(async () => {
-    setIsRunning(true);
-    try {
-      const updates = await runDiagram(nodes, edges);
-      setNodes((nds) =>
-        nds.map((n) => {
-          if (n.type === "NumericIndicator" && updates[n.id] !== undefined) {
-            return { ...n, data: { ...n.data, value: updates[n.id] } };
-          }
-          return n;
-        })
-      );
-    } finally {
-      setIsRunning(false);
-    }
-  }, [nodes, edges, setNodes]);
+export default function DiagramEditor({
+  nodes,
+  edges,
+  setNodes,
+  setEdges,
+  onNodesChange,
+  onEdgesChange,
+  onRun,
+  isRunning,
+}: DiagramEditorProps) {
+  const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
 
   /** Handle new connections between nodes */
   const onConnect = useCallback(
@@ -251,7 +249,7 @@ export default function DiagramEditor() {
   );
 
   return (
-    <div className="flex h-screen w-screen bg-gray-950">
+    <div className="flex h-full w-full bg-gray-950">
       {/* Palette sidebar */}
       <aside className="flex w-52 flex-col border-r border-gray-800 bg-gray-900 p-3">
         <h2 className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-gray-500">

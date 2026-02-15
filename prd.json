@@ -56,7 +56,8 @@
       "title": "Front Panel Binding",
       "description": "Create a separate 'Panel' view. Controls/Indicators on the Diagram automatically appear on the Panel. Two-way binding.",
       "priority": 5,
-      "verification": "Change value on Panel -> Diagram executes with new value -> Indicator updates."
+      "verification": "Change value on Panel -> Diagram executes with new value -> Indicator updates.",
+      "passes": true
     }
   ]
 }

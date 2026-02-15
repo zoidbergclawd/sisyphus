@@ -147,3 +147,35 @@
 - WhileLoop tunneling: init=0, maxIterations=5, Add(i,1) → Indicator = 5
 - Nested loops: outer 3x, inner 2x = 6 total increments
 - runDiagram: flat graph returns {ind: 10}, empty diagram returns {}, WhileLoop returns {ind: 5}
+
+---
+
+## Item 5: Front Panel Binding ✅
+
+**Route:** C (Complex)
+**Time:** ~15 min
+
+**Files created:**
+- web-vi/src/components/VIWorkspace.tsx
+- web-vi/src/components/VIWorkspace.test.tsx
+
+**Files modified:**
+- web-vi/src/components/DiagramEditor.tsx (refactored to controlled component — accepts nodes/edges/setNodes/setEdges/onRun/isRunning as props instead of managing own state)
+- web-vi/src/app/page.tsx (switched from DiagramEditor to VIWorkspace as root component)
+
+**Decisions:**
+- Lifted shared state (nodes, edges, isRunning) up into VIWorkspace component — both DiagramEditor and FrontPanel consume the same state
+- DiagramEditor refactored to be a controlled component (pure render + interaction logic), no longer owns state
+- VIWorkspace owns execution logic (onRun) and node data updates (updateNodeData)
+- Front Panel rendered as a toggleable right sidebar via "Panel" button floating top-right of diagram area
+- Two-way binding achieved: FrontPanel.onNodeDataChange calls VIWorkspace.updateNodeData which calls setNodes — same setNodes that DiagramEditor uses
+- FrontPanel.tsx and FrontPanel.test.tsx were pre-existing untracked files with 9 unit tests covering controls, indicators, value changes, empty states, and running indicator
+- Used stateful mocks (useState/useCallback) in VIWorkspace tests to simulate React Flow's useNodesState/useEdgesState since jsdom lacks layout APIs
+- INITIAL_NODES and INITIAL_EDGES exported from DiagramEditor for VIWorkspace to use as initial state
+
+**Verification:** ✓ 53 tests passing (7 engine + 16 node + 6 diagram + 5 converter + 3 execution + 9 front-panel + 7 workspace), TypeScript clean, Next.js build clean
+- Panel toggle: shows/hides Front Panel sidebar
+- Controls rendered: initial nodes A=3, B=7 appear as editable controls on panel
+- Indicators rendered: Result=0 appears as read-only indicator on panel
+- Two-way binding: changing control value on panel updates shared node state
+- Panel visibility: toggle on/off works correctly

@@ -1,11 +1,11 @@
 import dynamic from "next/dynamic";
 
 /** React Flow requires browser APIs — load client-only */
-const DiagramEditor = dynamic(
-  () => import("@/components/DiagramEditor"),
+const VIWorkspace = dynamic(
+  () => import("@/components/VIWorkspace"),
   { ssr: false }
 );
 
 export default function Home() {
-  return <DiagramEditor />;
+  return <VIWorkspace />;
 }
