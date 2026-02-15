@@ -77,3 +77,39 @@
 - AddNode: renders + symbol, two input handles, one output handle
 - SubtractNode: renders − symbol, two input handles, one output handle
 - NODE_TYPES: exports all four custom types
+
+---
+
+## Item 3: The While Loop Container (Sub-Flow) ✅
+
+**Route:** C (Complex)
+**Time:** ~15 min
+
+**Files created:**
+- web-vi/src/components/nodes/WhileLoopNode.tsx
+- web-vi/src/components/parentChildHelpers.ts
+- web-vi/src/components/diagram.test.tsx
+
+**Files modified:**
+- web-vi/src/components/nodes/index.ts (added WhileLoop to NODE_TYPES registry)
+- web-vi/src/components/nodes/nodes.test.tsx (added WhileLoopNode tests, updated registry test)
+- web-vi/src/components/DiagramEditor.tsx (added WhileLoop to palette, drop-into-container logic, onNodeDragStop reparenting)
+
+**Decisions:**
+- Used React Flow's native `parentNode` property for parent-child relationships — children render relative to parent, move together
+- WhileLoopNode is a resizable container using `NodeResizer` from reactflow (bundled in v11.5+)
+- Container uses dark translucent background (rgba slate) with cyan accent for LabVIEW industrial aesthetic
+- Input tunnel (target handle "init") and output tunnel (source handle "result") match engine schema
+- `findContainingLoop()` does position-based hit-testing to detect when a node is inside a WhileLoop's bounds
+- `reparentNode()` handles coordinate conversion between absolute (canvas) and relative (parent-local) positions
+- `onNodeDragStop` handler detects when existing nodes are dragged into/out of While Loops and reparents them
+- `onDrop` handler auto-parents new nodes dropped inside a While Loop from the palette
+- Child nodes get `extent: "parent"` to prevent dragging outside the container
+- WhileLoop nodes get explicit `style: { width, height }` for React Flow to know container bounds
+- Minimum container size: 200x150 for hit-testing, default size: 320x220
+
+**Verification:** ✓ 29 tests passing (7 engine + 16 node + 6 diagram), TypeScript clean, Next.js build clean
+- WhileLoopNode: renders label, input/output tunnel handles, selection visual feedback, default size
+- NODE_TYPES: exports all five custom types including WhileLoop
+- findContainingLoop: detects inside/outside/self containment correctly
+- reparentNode: adopts into parent (absolute→relative), removes from parent (relative→absolute), no-op on same parent

@@ -5,6 +5,7 @@ import { NumericControlNode } from "./NumericControlNode";
 import { NumericIndicatorNode } from "./NumericIndicatorNode";
 import { AddNode } from "./AddNode";
 import { SubtractNode } from "./SubtractNode";
+import { WhileLoopNode } from "./WhileLoopNode";
 import { NODE_TYPES } from "./index";
 
 /** Wrapper to provide ReactFlow context required by Handle components */
@@ -260,12 +261,101 @@ describe("Custom Node Types", () => {
     });
   });
 
+  describe("WhileLoopNode", () => {
+    it("renders with While Loop label", () => {
+      render(
+        <FlowWrapper>
+          <WhileLoopNode
+            id="loop-1"
+            data={{ label: "While Loop" }}
+            selected={false}
+            type="WhileLoop"
+            zIndex={0}
+            isConnectable={true}
+            xPos={0}
+            yPos={0}
+            dragging={false}
+          />
+        </FlowWrapper>
+      );
+      expect(screen.getByText(/While Loop/)).toBeInTheDocument();
+    });
+
+    it("has an input tunnel (target handle) and output tunnel (source handle)", () => {
+      const { container } = render(
+        <FlowWrapper>
+          <WhileLoopNode
+            id="loop-1"
+            data={{ label: "While Loop" }}
+            selected={false}
+            type="WhileLoop"
+            zIndex={0}
+            isConnectable={true}
+            xPos={0}
+            yPos={0}
+            dragging={false}
+          />
+        </FlowWrapper>
+      );
+      const targetHandles = container.querySelectorAll(
+        '.react-flow__handle[data-handlepos="left"]'
+      );
+      const sourceHandles = container.querySelectorAll(
+        '.react-flow__handle[data-handlepos="right"]'
+      );
+      expect(targetHandles).toHaveLength(1);
+      expect(sourceHandles).toHaveLength(1);
+    });
+
+    it("shows selection visual feedback when selected", () => {
+      const { container } = render(
+        <FlowWrapper>
+          <WhileLoopNode
+            id="loop-1"
+            data={{ label: "While Loop" }}
+            selected={true}
+            type="WhileLoop"
+            zIndex={0}
+            isConnectable={true}
+            xPos={0}
+            yPos={0}
+            dragging={false}
+          />
+        </FlowWrapper>
+      );
+      const nodeEl = container.firstElementChild as HTMLElement;
+      expect(nodeEl.className).toContain("border-cyan-500");
+    });
+
+    it("renders at default size when no dimensions specified", () => {
+      const { container } = render(
+        <FlowWrapper>
+          <WhileLoopNode
+            id="loop-1"
+            data={{ label: "While Loop" }}
+            selected={false}
+            type="WhileLoop"
+            zIndex={0}
+            isConnectable={true}
+            xPos={0}
+            yPos={0}
+            dragging={false}
+          />
+        </FlowWrapper>
+      );
+      const nodeEl = container.firstElementChild as HTMLElement;
+      expect(nodeEl.style.width).toBe("320px");
+      expect(nodeEl.style.height).toBe("220px");
+    });
+  });
+
   describe("NODE_TYPES registry", () => {
-    it("exports all four custom node types", () => {
+    it("exports all five custom node types including WhileLoop", () => {
       expect(NODE_TYPES).toHaveProperty("NumericControl");
       expect(NODE_TYPES).toHaveProperty("NumericIndicator");
       expect(NODE_TYPES).toHaveProperty("Add");
       expect(NODE_TYPES).toHaveProperty("Subtract");
+      expect(NODE_TYPES).toHaveProperty("WhileLoop");
     });
   });
 });

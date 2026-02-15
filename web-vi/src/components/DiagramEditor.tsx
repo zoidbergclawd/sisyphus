@@ -11,10 +11,12 @@ import ReactFlow, {
   type Connection,
   type Edge,
   type Node,
+  type NodeDragHandler,
   type ReactFlowInstance,
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { NODE_TYPES } from "./nodes";
+import { findContainingLoop, reparentNode } from "./parentChildHelpers";
 
 /** Initial demo nodes to populate the canvas */
 const INITIAL_NODES: Node[] = [
@@ -58,6 +60,7 @@ const PALETTE_ITEMS = [
   { type: "NumericIndicator", label: "Numeric Indicator" },
   { type: "Add", label: "Add" },
   { type: "Subtract", label: "Subtract" },
+  { type: "WhileLoop", label: "While Loop" },
 ] as const;
 
 /** Default data for each node type when created via palette drag */
@@ -66,6 +69,7 @@ const DEFAULT_DATA: Record<string, Record<string, unknown>> = {
   NumericIndicator: { label: "Output", value: 0 },
   Add: { label: "Add" },
   Subtract: { label: "Subtract" },
+  WhileLoop: { label: "While Loop" },
 };
 
 export default function DiagramEditor() {
@@ -149,9 +153,24 @@ export default function DiagramEditor() {
         type: nodeType,
         position,
         data: { ...DEFAULT_DATA[nodeType] },
+        // WhileLoop nodes need explicit dimensions for React Flow parent sizing
+        ...(nodeType === "WhileLoop" && { style: { width: 320, height: 220 } }),
       };
 
-      setNodes((nds) => [...nds, newNode]);
+      setNodes((nds) => {
+        // If the new node is not a WhileLoop, check if it landed inside one
+        if (nodeType !== "WhileLoop") {
+          const containerId = findContainingLoop(newNode, nds);
+          if (containerId) {
+            const parent = nds.find((n) => n.id === containerId);
+            if (parent) {
+              const adopted = reparentNode(newNode, containerId, parent);
+              return [...nds, adopted];
+            }
+          }
+        }
+        return [...nds, newNode];
+      });
     },
     [setNodes]
   );
@@ -160,6 +179,56 @@ export default function DiagramEditor() {
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
   }, []);
+
+  /** When a node drag ends, check if it moved into or out of a WhileLoop */
+  const onNodeDragStop: NodeDragHandler = useCallback(
+    (_event, draggedNode) => {
+      // Don't reparent WhileLoop containers themselves
+      if (draggedNode.type === "WhileLoop") return;
+
+      setNodes((nds) => {
+        const currentParentId = draggedNode.parentNode ?? null;
+
+        // For nodes with a parent, position in nds is already parent-relative.
+        // To check absolute position, convert back.
+        let absoluteNode = draggedNode;
+        if (currentParentId) {
+          const parent = nds.find((n) => n.id === currentParentId);
+          if (parent) {
+            absoluteNode = {
+              ...draggedNode,
+              position: {
+                x: draggedNode.position.x + parent.position.x,
+                y: draggedNode.position.y + parent.position.y,
+              },
+            };
+          }
+        }
+
+        const newContainerId = findContainingLoop(absoluteNode, nds);
+
+        // No change needed
+        if (newContainerId === currentParentId) return nds;
+
+        // Find the relevant parent node for coordinate conversion
+        const parentNode = newContainerId
+          ? nds.find((n) => n.id === newContainerId)
+          : nds.find((n) => n.id === currentParentId);
+
+        if (!parentNode) return nds;
+
+        return nds.map((n) => {
+          if (n.id !== draggedNode.id) return n;
+          return reparentNode(
+            { ...n, position: absoluteNode.position, parentNode: currentParentId ?? undefined },
+            newContainerId,
+            parentNode
+          );
+        });
+      });
+    },
+    [setNodes]
+  );
 
   return (
     <div className="flex h-screen w-screen bg-gray-950">
@@ -198,6 +267,7 @@ export default function DiagramEditor() {
           }}
           onDrop={onDrop}
           onDragOver={onDragOver}
+          onNodeDragStop={onNodeDragStop}
           nodeTypes={NODE_TYPES}
           fitView
           snapToGrid

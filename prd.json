@@ -38,7 +38,8 @@
       "title": "The While Loop Container (Sub-Flow)",
       "description": "Implement the 'While Loop' as a Resizable Parent Node. dragging a node INSIDE it updates the data model parent ID.",
       "priority": 3,
-      "verification": "Visually place an 'Add' node inside a 'While Loop'. The data model reflects the parent-child relationship."
+      "verification": "Visually place an 'Add' node inside a 'While Loop'. The data model reflects the parent-child relationship.",
+      "passes": true
     },
     {
       "id": 4,
