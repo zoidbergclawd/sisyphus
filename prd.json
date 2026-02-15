@@ -29,7 +29,8 @@
       "title": "React Flow Harness & Node Types",
       "description": "Set up the Next.js app with React Flow. Create custom node types: 'NumericControl', 'NumericIndicator', 'Add', 'Subtract'.",
       "priority": 2,
-      "verification": "Drag nodes onto canvas, connect wires, visual feedback on selection."
+      "verification": "Drag nodes onto canvas, connect wires, visual feedback on selection.",
+      "passes": true
     },
     {
       "id": 3,

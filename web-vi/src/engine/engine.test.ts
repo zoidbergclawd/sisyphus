@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { executeGraph } from "./runner";
-import type { Graph, Node, Edge } from "./schema";
+import type { Graph } from "./schema";
 
 describe("Recursive Graph Schema", () => {
   it("represents a flat graph with nodes and edges", () => {

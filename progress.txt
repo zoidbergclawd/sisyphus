@@ -35,3 +35,45 @@
 - While Loop: 10 iterations incrementing from 0, outputs 10
 - Infinite loop safety: maxIterations=5 caps execution
 - Nested loops: outer 3x, inner 4x = 12 total increments
+
+---
+
+## Item 2: React Flow Harness & Node Types ✅
+
+**Route:** C (Complex)
+**Time:** ~15 min
+
+**Files created:**
+- web-vi/src/test-setup.ts
+- web-vi/src/components/nodes/NumericControlNode.tsx
+- web-vi/src/components/nodes/NumericIndicatorNode.tsx
+- web-vi/src/components/nodes/AddNode.tsx
+- web-vi/src/components/nodes/SubtractNode.tsx
+- web-vi/src/components/nodes/index.ts
+- web-vi/src/components/nodes/nodes.test.tsx
+- web-vi/src/components/DiagramEditor.tsx
+
+**Files modified:**
+- web-vi/package.json (added reactflow, @testing-library/react, @testing-library/jest-dom, @testing-library/user-event, jsdom)
+- web-vi/vitest.config.ts (added jsdom environment, tsx test pattern, setup file, esbuild jsx:automatic)
+- web-vi/src/app/page.tsx (replaced boilerplate with DiagramEditor via dynamic import)
+- web-vi/src/app/layout.tsx (updated metadata title/description)
+- web-vi/src/engine/engine.test.ts (fixed unused imports for ESLint build compliance)
+
+**Decisions:**
+- Four custom node types matching engine schema: NumericControl (editable input + source handle), NumericIndicator (display + target handle), Add (+, two targets + one source), Subtract (−, two targets + one source)
+- NODE_TYPES registry exported as a single object for React Flow's nodeTypes prop
+- DiagramEditor uses dark canvas (gray-950) with industrial/utilitarian aesthetic inspired by LabVIEW
+- Palette sidebar with drag-to-create: stores node type in dataTransfer, creates node at drop position
+- Selection visual feedback via Tailwind ring-2 ring-blue-500 class on selected nodes
+- Animated cyan wires (stroke: #22d3ee) for connections with snap-to-grid (16px)
+- Dynamic import with ssr:false for React Flow (requires browser APIs)
+- Used @testing-library/react with ReactFlowProvider wrapper for component tests
+- Added esbuild jsx:automatic to vitest config for React JSX transform
+
+**Verification:** ✓ 19 tests passing (7 engine + 12 node), TypeScript clean, Next.js build clean
+- NumericControlNode: renders label + editable input, onChange callback, output handle, selection ring
+- NumericIndicatorNode: renders label + value display, input handle, selection ring
+- AddNode: renders + symbol, two input handles, one output handle
+- SubtractNode: renders − symbol, two input handles, one output handle
+- NODE_TYPES: exports all four custom types
