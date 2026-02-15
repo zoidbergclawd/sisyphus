@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useMemo } from "react";
+import { useCallback, useRef, useMemo, useState } from "react";
 import ReactFlow, {
   addEdge,
   useNodesState,
@@ -17,6 +17,7 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import { NODE_TYPES } from "./nodes";
 import { findContainingLoop, reparentNode } from "./parentChildHelpers";
+import { runDiagram } from "../engine/useExecution";
 
 /** Initial demo nodes to populate the canvas */
 const INITIAL_NODES: Node[] = [
@@ -77,6 +78,25 @@ export default function DiagramEditor() {
   const [nodes, setNodes, onNodesChange] = useNodesState(INITIAL_NODES);
   const [edges, setEdges, onEdgesChange] = useEdgesState(INITIAL_EDGES);
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
+  const [isRunning, setIsRunning] = useState(false);
+
+  /** Execute the diagram through the engine and update indicators */
+  const onRun = useCallback(async () => {
+    setIsRunning(true);
+    try {
+      const updates = await runDiagram(nodes, edges);
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.type === "NumericIndicator" && updates[n.id] !== undefined) {
+            return { ...n, data: { ...n.data, value: updates[n.id] } };
+          }
+          return n;
+        })
+      );
+    } finally {
+      setIsRunning(false);
+    }
+  }, [nodes, edges, setNodes]);
 
   /** Handle new connections between nodes */
   const onConnect = useCallback(
@@ -249,8 +269,17 @@ export default function DiagramEditor() {
             </div>
           ))}
         </div>
-        <div className="mt-auto pt-4 text-[10px] text-gray-600">
-          Drag nodes onto the canvas. Connect outputs to inputs.
+        <div className="mt-auto flex flex-col gap-2 pt-4">
+          <button
+            onClick={onRun}
+            disabled={isRunning}
+            className="rounded border border-cyan-700 bg-cyan-900 px-3 py-2 text-xs font-bold uppercase tracking-wider text-cyan-300 transition-colors hover:bg-cyan-800 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isRunning ? "Running..." : "Run"}
+          </button>
+          <div className="text-[10px] text-gray-600">
+            Drag nodes onto the canvas. Connect outputs to inputs.
+          </div>
         </div>
       </aside>
 

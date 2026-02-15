@@ -47,7 +47,8 @@
       "title": "Wiring & Execution",
       "description": "Connect the React Flow edges to the Engine. Implement 'Tunneling' for wires crossing loop boundaries.",
       "priority": 4,
-      "verification": "Build a VI: Loop (i < 5) -> Add(i, 1) -> Indicator. Click Run. Indicator shows 0, 1, 2, 3, 4, 5."
+      "verification": "Build a VI: Loop (i < 5) -> Add(i, 1) -> Indicator. Click Run. Indicator shows 0, 1, 2, 3, 4, 5.",
+      "passes": true
     },
     {
       "id": 5,

@@ -113,3 +113,37 @@
 - NODE_TYPES: exports all five custom types including WhileLoop
 - findContainingLoop: detects inside/outside/self containment correctly
 - reparentNode: adopts into parent (absolute→relative), removes from parent (relative→absolute), no-op on same parent
+
+---
+
+## Item 4: Wiring & Execution ✅
+
+**Route:** C (Complex)
+**Time:** ~15 min
+
+**Files created:**
+- web-vi/src/engine/graphConverter.ts
+- web-vi/src/engine/graphConverter.test.ts
+- web-vi/src/engine/useExecution.ts
+- web-vi/src/engine/useExecution.test.ts
+
+**Files modified:**
+- web-vi/src/components/DiagramEditor.tsx (added Run button, execution integration via runDiagram)
+
+**Decisions:**
+- Graph converter bridges React Flow nodes/edges to engine's recursive Graph schema
+- Tunneling convention uses handle IDs: "init-tunnel-in" (source inside loop body) and "result-tunnel-out" (target inside loop body) to distinguish internal vs external wiring
+- WhileLoop tunnels automatically create ShiftRegisterRead/Write, iteration counter, LessThan + LoopCondition inside the engine child graph
+- Loop iterations controlled by maxIterations in WhileLoop data — the converter auto-generates the iteration counter and condition plumbing
+- Nested loops handled via recursion in buildChildGraph — each nested WhileLoop gets its own child graph with shift registers
+- runDiagram() is a pure function (nodes, edges → indicator updates) — easy to test without React
+- Run button in sidebar updates all NumericIndicator values after execution
+- Handle IDs on React Flow nodes (value, a, b, result, init, result) already match engine terminal names from Items 1-3
+
+**Verification:** ✓ 37 tests passing (7 engine + 16 node + 6 diagram + 5 converter + 3 execution), TypeScript clean, Next.js build clean
+- Flat graph: NumericControl(3) + NumericControl(7) → Add → Indicator = 10
+- Subtract: NumericControl(10) - NumericControl(4) → Indicator = 6
+- Unconnected nodes: graceful handling, indicator exists but receives no input
+- WhileLoop tunneling: init=0, maxIterations=5, Add(i,1) → Indicator = 5
+- Nested loops: outer 3x, inner 2x = 6 total increments
+- runDiagram: flat graph returns {ind: 10}, empty diagram returns {}, WhileLoop returns {ind: 5}
