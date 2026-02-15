@@ -1,0 +1,59 @@
+{
+  "project": "web-vi-spark",
+  "goal": "Build a robust, scalable 'LabVIEW in the Browser' MVP using React Flow and a recursive DAG engine.",
+  "tech_stack": {
+    "framework": "Next.js 14 (App Router)",
+    "ui_library": "React Flow (Nodes, Edges, Sub-Flows)",
+    "styling": "Tailwind CSS",
+    "state_management": "Zustand (with Immer for nested updates)",
+    "runtime": "TypeScript Custom DAG Engine"
+  },
+  "context": {
+    "critical_constraint": "Must support NESTED structures (While Loops) robustly. The graph schema must be recursive.",
+    "target_user": "LabVIEW developers who want web-native VIs."
+  },
+  "items": [
+    {
+      "id": 1,
+      "category": "core-engine",
+      "title": "Recursive Graph Schema & Engine",
+      "description": "Design the JSON schema to support nested graphs (nodes containing child graphs). Implement a headless runner that can execute a 'While Loop' with a 'Wait' and 'Increment' inside it.",
+      "priority": 1,
+      "verification": "Unit test: A loop runs 10 times, increments a value, and outputs the final result (10). No UI.",
+      "notes": "Think tree, not list. Nodes have input/output terminals.",
+      "passes": true
+    },
+    {
+      "id": 2,
+      "category": "ui-framework",
+      "title": "React Flow Harness & Node Types",
+      "description": "Set up the Next.js app with React Flow. Create custom node types: 'NumericControl', 'NumericIndicator', 'Add', 'Subtract'.",
+      "priority": 2,
+      "verification": "Drag nodes onto canvas, connect wires, visual feedback on selection."
+    },
+    {
+      "id": 3,
+      "category": "ui-structures",
+      "title": "The While Loop Container (Sub-Flow)",
+      "description": "Implement the 'While Loop' as a Resizable Parent Node. dragging a node INSIDE it updates the data model parent ID.",
+      "priority": 3,
+      "verification": "Visually place an 'Add' node inside a 'While Loop'. The data model reflects the parent-child relationship."
+    },
+    {
+      "id": 4,
+      "category": "execution-integration",
+      "title": "Wiring & Execution",
+      "description": "Connect the React Flow edges to the Engine. Implement 'Tunneling' for wires crossing loop boundaries.",
+      "priority": 4,
+      "verification": "Build a VI: Loop (i < 5) -> Add(i, 1) -> Indicator. Click Run. Indicator shows 0, 1, 2, 3, 4, 5."
+    },
+    {
+      "id": 5,
+      "category": "front-panel",
+      "title": "Front Panel Binding",
+      "description": "Create a separate 'Panel' view. Controls/Indicators on the Diagram automatically appear on the Panel. Two-way binding.",
+      "priority": 5,
+      "verification": "Change value on Panel -> Diagram executes with new value -> Indicator updates."
+    }
+  ]
+}

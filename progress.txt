@@ -1,0 +1,37 @@
+# Sisyphus Progress Log
+
+## Session Start: 2026-02-15 08:45:22
+
+---
+
+## Item 1: Recursive Graph Schema & Engine ✅
+
+**Route:** C (Complex)
+**Time:** ~15 min
+
+**Files created:**
+- web-vi/ (Next.js 14 project scaffold with TypeScript, Tailwind, App Router)
+- web-vi/vitest.config.ts
+- web-vi/src/engine/schema.ts
+- web-vi/src/engine/runner.ts
+- web-vi/src/engine/engine.test.ts
+
+**Files modified:**
+- web-vi/package.json (added vitest, test/typecheck scripts)
+
+**Decisions:**
+- Used Vitest over Jest for native TypeScript/ESM support and speed
+- Schema is recursive: Graph -> Node[] -> Node.childGraph? -> Graph (tree structure)
+- WhileLoop uses shift registers (LabVIEW pattern) for data flow across iterations
+- ShiftRegisterRead/Write nodes inside loop body connect to the loop's input tunnels
+- LoopCondition node controls loop continuation (LabVIEW-style stop terminal)
+- maxIterations safety valve prevents infinite loops
+- Topological sort (Kahn's algorithm) determines execution order within a graph
+- Engine is fully headless — no UI dependencies
+
+**Verification:** ✓ 7 tests passing, TypeScript type checking clean
+- Flat graph: Constant -> Indicator
+- Add node: two Constants -> Add -> Indicator (3+7=10)
+- While Loop: 10 iterations incrementing from 0, outputs 10
+- Infinite loop safety: maxIterations=5 caps execution
+- Nested loops: outer 3x, inner 4x = 12 total increments
