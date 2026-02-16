@@ -1,0 +1,15 @@
+{
+  "project": "Loop Test",
+  "goal": "Verify Ralph's validator hook prevents bad code from passing.",
+  "items": [
+    {
+      "id": 1,
+      "category": "core",
+      "title": "Create Magic Token",
+      "description": "Create a file named 'magic_token.txt'. Initially, write '0' to it. This should FAIL validation. Then, update it to '42' to PASS validation.",
+      "priority": 1,
+      "verification": "File magic_token.txt exists",
+      "steps": ["Create file", "Write value"]
+    }
+  ]
+}
