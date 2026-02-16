@@ -148,6 +148,27 @@ def _run_tests() -> tuple[bool, str]:
         return False, "Tests timed out after 5 minutes"
 
 
+def _run_validator(cmd: str) -> tuple[bool, str]:
+    """Run the external validator command.
+    
+    Returns (True, output) if pass, (False, output) if fail.
+    """
+    try:
+        # Use shell=True to allow complex commands
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 min timeout for validation
+        )
+        return result.returncode == 0, result.stdout + result.stderr
+    except subprocess.TimeoutExpired:
+        return False, "Validator timed out after 5 minutes"
+    except Exception as e:
+        return False, f"Validator error: {e}"
+
+
 def _create_checkpoint(
     state: RalphState,
     prd: PRD,
@@ -207,6 +228,7 @@ def start(
     push: bool = typer.Option(False, "--push", help="Auto-push to remote after each checkpoint"),
     skip_dirty_check: bool = typer.Option(False, "--force", help="Skip dirty working directory check"),
     watchdog_timeout: int = typer.Option(600, "--watchdog-timeout", help="Seconds of silence before watchdog triggers (0 to disable, default 600 = 10 min)"),
+    validator: str = typer.Option(None, "--validator", help="Command to run after tests pass. If it fails, the agent must fix it."),
 ) -> None:
     """Start a new Ralph run from a PRD file."""
     # Check for existing state
@@ -271,6 +293,7 @@ def start(
         auto_push=push,
         base_branch=base_branch,
         watchdog_timeout=watchdog_timeout,
+        validator_cmd=validator,
     )
     state.save()
 
@@ -398,6 +421,28 @@ def _process_items(state: RalphState, prd: PRD, git: GitOps, agent: "Agent") -> 
             return
 
         console.print("[green]✓ Tests passed[/green]")
+
+        # Run validator if configured
+        if state.validator_cmd:
+            state.set_action("Running validator...")
+            console.print(f"[bold blue]Running validator: {state.validator_cmd}[/bold blue]")
+            
+            valid_passed, valid_output = _run_validator(state.validator_cmd)
+            
+            if not valid_passed:
+                state.set_action("Validation failed - waiting for fix")
+                console.print("[red]✗ Validator failed![/red]")
+                console.print(Panel(valid_output, title="Validator Output", border_style="red"))
+                console.print("\n[yellow]Validator failed. Agent must fix this.[/yellow]")
+                
+                # We need to feed this back to the agent in the next loop iteration
+                # Currently, Ralph exits on failure.
+                # TODO: Implement auto-retry loop.
+                # For now, we return and let the user 'ralph resume'
+                console.print("[yellow]Fix the validation issues and run 'ralph resume' to continue.[/yellow]")
+                return
+            
+            console.print("[green]✓ Validation passed[/green]")
 
         # Run pre-commit hooks if defined
         if prd.hooks.pre_commit:

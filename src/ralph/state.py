@@ -60,6 +60,7 @@ class RalphState:
     watchdog_timeout: int = 600  # Default 10 minutes in seconds
     last_output_at: str = ""
     watchdog_triggered: bool = False
+    validator_cmd: str | None = None  # Command to run for validation
 
     RALPH_DIR = ".ralph"
     STATE_FILE = "state.json"
@@ -111,6 +112,7 @@ class RalphState:
             watchdog_timeout=data.get("watchdog_timeout", 600),
             last_output_at=data.get("last_output_at", ""),
             watchdog_triggered=data.get("watchdog_triggered", False),
+            validator_cmd=data.get("validator_cmd"),
         )
 
     def save(self) -> None:
@@ -145,6 +147,7 @@ class RalphState:
             "watchdog_timeout": self.watchdog_timeout,
             "last_output_at": self.last_output_at,
             "watchdog_triggered": self.watchdog_triggered,
+            "validator_cmd": self.validator_cmd,
         }
         
         with open(self.state_file(), "w") as f:
