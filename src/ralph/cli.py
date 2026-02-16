@@ -266,15 +266,24 @@ def start(
         raise typer.Exit(1)
     
     # Get agent
-    selected_agent = get_agent(agent)
-    if not selected_agent:
-        available = detect_agents()
-        if not available:
-            console.print("[red]✗ No coding agents found.[/red]")
-            console.print("Install one of: claude, codex, gemini")
+    if backend == "cli":
+        selected_agent = get_agent(agent)
+        if not selected_agent:
+            available = detect_agents()
+            if not available:
+                console.print("[red]✗ No coding agents found.[/red]")
+                console.print("Install one of: claude, codex, gemini")
+                raise typer.Exit(1)
+            console.print(f"[yellow]⚠ Agent '{agent}' not found. Available: {', '.join(available.keys())}[/yellow]")
             raise typer.Exit(1)
-        console.print(f"[yellow]⚠ Agent '{agent}' not found. Available: {', '.join(available.keys())}[/yellow]")
-        raise typer.Exit(1)
+    else:
+        # OpenClaw backend allows any agent string (passed as ID)
+        # We create a dummy Agent config just to satisfy state types if needed, 
+        # or rely on the fact that state.agent stores the string.
+        # Ideally, we should validate against 'openclaw agents list' here, 
+        # but that requires calling the openclaw CLI which might be slow. 
+        # For now, we trust the user.
+        selected_agent = None 
     
     # Create branch
     base_branch = git.get_current_branch()
@@ -320,20 +329,23 @@ def start(
     _process_items(state, prd, git, selected_agent)
 
 
-def _process_items(state: RalphState, prd: PRD, git: GitOps, agent_config: "Agent") -> None:  # type: ignore
+def _process_items(state: RalphState, prd: PRD, git: GitOps, agent_config: "Agent" | None) -> None:  # type: ignore
     """Process PRD items sequentially."""
     from ralph.agents import Agent
 
     # Initialize Backend
     backend: AgentBackend
     if state.backend == "openclaw":
-        # For OpenClaw backend, agent_config.name/command matters less, 
-        # we rely on the backend implementation which might use internal agent IDs
-        # But we pass the agent ID if needed
+        # For OpenClaw backend, agent_config might be None
+        # We pass the agent ID from state
         backend = OpenClawBackend(agent_id=state.agent)
+        agent_name = state.agent
     else:
         # Legacy CLI backend
+        if not agent_config:
+             raise ValueError("Agent config required for CLI backend")
         backend = CliBackend(agent_config)
+        agent_name = agent_config.name
 
     # Log file for agent output
     log_file = RalphState.state_dir() / "current.log"
@@ -373,7 +385,7 @@ def _process_items(state: RalphState, prd: PRD, git: GitOps, agent_config: "Agen
         # Build prompt and run agent
         prompt = build_item_prompt(item, prd)
 
-        console.print(f"[bold blue]Running {agent_config.name} ({state.backend})...[/bold blue]")
+        console.print(f"[bold blue]Running {agent_name} ({state.backend})...[/bold blue]")
         if state.watchdog_timeout > 0:
             console.print(f"[dim]Watchdog: {state.watchdog_timeout}s timeout[/dim]")
 
