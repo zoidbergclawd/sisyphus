@@ -1,17 +1,17 @@
-# Ralph CLI
+# Spark Swarm (formerly Sisyphus)
 
 > Autonomous AI coding agent orchestrator with branch isolation, checkpoints, and PR workflow.
 
-Ralph is a CLI tool that orchestrates AI coding agents (Claude Code, Codex, Gemini) to work through a Product Requirements Document (PRD) systematically. Each run creates an isolated git branch, auto-commits after each item, and can generate pull requests automatically.
+Spark Swarm (powered by the `ralph` CLI) orchestrates AI coding agents (Claude Code, Codex, Gemini) to work through a Product Requirements Document (PRD) systematically. Each run creates an isolated git branch, auto-commits after each item, and can generate pull requests automatically.
 
-Named for "Ralphing" – our term for autonomous coding loops.
+Named for "Spark" - the energy that drives the swarm.
 
 ## Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/sisyphus.git
-cd sisyphus
+git clone https://github.com/yourusername/spark-swarm.git
+cd spark-swarm
 
 # Create virtual environment
 python3 -m venv .venv
