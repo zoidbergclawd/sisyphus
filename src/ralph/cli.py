@@ -12,7 +12,10 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from ralph import __version__
-from ralph.agents import AGENTS, build_item_prompt, detect_agents, get_agent, run_agent
+from ralph.agents import AGENTS, build_item_prompt, detect_agents, get_agent
+from ralph.backends.cli import CliBackend
+from ralph.backends.openclaw import OpenClawBackend
+from ralph.backends.base import AgentBackend
 from ralph.git_ops import GitError, GitOps, generate_branch_name
 from ralph.prd import PRD
 from ralph.state import Checkpoint, RalphState
@@ -229,6 +232,7 @@ def start(
     skip_dirty_check: bool = typer.Option(False, "--force", help="Skip dirty working directory check"),
     watchdog_timeout: int = typer.Option(600, "--watchdog-timeout", help="Seconds of silence before watchdog triggers (0 to disable, default 600 = 10 min)"),
     validator: str = typer.Option(None, "--validator", help="Command to run after tests pass. If it fails, the agent must fix it."),
+    backend: str = typer.Option("cli", "--backend", help="Agent backend: 'cli' (legacy) or 'openclaw' (recommended)"),
 ) -> None:
     """Start a new Ralph run from a PRD file."""
     # Check for existing state
@@ -294,6 +298,7 @@ def start(
         base_branch=base_branch,
         watchdog_timeout=watchdog_timeout,
         validator_cmd=validator,
+        backend=backend,
     )
     state.save()
 
@@ -315,9 +320,20 @@ def start(
     _process_items(state, prd, git, selected_agent)
 
 
-def _process_items(state: RalphState, prd: PRD, git: GitOps, agent: "Agent") -> None:  # type: ignore
+def _process_items(state: RalphState, prd: PRD, git: GitOps, agent_config: "Agent") -> None:  # type: ignore
     """Process PRD items sequentially."""
     from ralph.agents import Agent
+
+    # Initialize Backend
+    backend: AgentBackend
+    if state.backend == "openclaw":
+        # For OpenClaw backend, agent_config.name/command matters less, 
+        # we rely on the backend implementation which might use internal agent IDs
+        # But we pass the agent ID if needed
+        backend = OpenClawBackend(agent_id=state.agent)
+    else:
+        # Legacy CLI backend
+        backend = CliBackend(agent_config)
 
     # Log file for agent output
     log_file = RalphState.state_dir() / "current.log"
@@ -357,7 +373,7 @@ def _process_items(state: RalphState, prd: PRD, git: GitOps, agent: "Agent") -> 
         # Build prompt and run agent
         prompt = build_item_prompt(item, prd)
 
-        console.print(f"[bold blue]Running {agent.name}...[/bold blue]")
+        console.print(f"[bold blue]Running {agent_config.name} ({state.backend})...[/bold blue]")
         if state.watchdog_timeout > 0:
             console.print(f"[dim]Watchdog: {state.watchdog_timeout}s timeout[/dim]")
 
@@ -379,33 +395,40 @@ def _process_items(state: RalphState, prd: PRD, git: GitOps, agent: "Agent") -> 
                 progress.update(task, description=line[:60] + "..." if len(line) > 60 else line)
                 state.update_last_output()
 
-            exit_code, output, watchdog_result = run_agent(
-                agent,
-                prompt,
+            result = backend.run(
+                task=prompt,
+                model=state.model,
                 on_output=output_callback,
-                log_file=log_file,
                 watchdog_timeout=state.watchdog_timeout,
                 on_watchdog_timeout=on_watchdog_timeout,
-                model=state.model,
+                log_file=log_file,
             )
 
         # Report watchdog status if it was triggered
-        if watchdog_result and watchdog_result.triggered:
+        if result.watchdog_triggered:
             state.set_watchdog_triggered()
-            console.print(f"[yellow]⚠ Watchdog was triggered during this run (silence: {int(watchdog_result.silence_duration)}s)[/yellow]")
+            console.print(f"[yellow]⚠ Watchdog was triggered during this run (silence: {int(result.silence_duration)}s)[/yellow]")
 
-        if exit_code != 0:
+        if result.exit_code != 0:
             state.set_action("Failed - waiting for fix")
-            console.print(f"[red]✗ Agent failed with exit code {exit_code}[/red]")
+            console.print(f"[red]✗ Agent failed with exit code {result.exit_code}[/red]")
+            console.print(f"[dim]{result.output}[/dim]")
             console.print("[yellow]You can fix the issue and run 'ralph resume' to continue.[/yellow]")
             return
 
         # Stage changes
         state.set_action("Staging changes...")
+        
+        # If backend detected specific files, we can be smart about it
+        # But Ralph core still relies on git.stage_all() to catch everything
+        # We can use result.files_changed for logging or verification later
+        if result.files_changed:
+            console.print(f"[dim]Backend reported {len(result.files_changed)} files changed[/dim]")
+            
         files_changed = git.stage_all()
 
         if not files_changed:
-            console.print("[yellow]⚠ No changes made by agent[/yellow]")
+            console.print("[yellow]⚠ No changes detected by git[/yellow]")
             # Still mark as complete if verification passes
 
         # Run tests
